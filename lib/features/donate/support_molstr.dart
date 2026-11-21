@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../ui/theme/app_theme.dart';
 
 const molstrLightning = 'MolStr@rizful.com';
 const molstrMonero =
@@ -29,14 +28,15 @@ class SupportMolStrPage extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            'MolStr is 100% free and open-source. Donations go directly to development with no intermediaries or platforms taking fees.',
+            'MolStr is free and open source. Donations support project development. '
+            'MolStr adds no donation fee; wallet, provider, or network fees may apply.',  
             style: TextStyle(fontSize: 14, height: 1.4),
           ),
           const SizedBox(height: 24),
 
           // Bitcoin Lightning Section
           Card(
-            color: MolStrColors.cardDark,
+            color: Theme.of(context).colorScheme.surface,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -83,7 +83,7 @@ class SupportMolStrPage extends StatelessWidget {
 
           // Monero Section
           Card(
-            color: MolStrColors.cardDark,
+            color: Theme.of(context).colorScheme.surface,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(

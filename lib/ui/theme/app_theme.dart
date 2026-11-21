@@ -8,46 +8,87 @@ class MolStrColors {
   static const cardDark = Color(0xFF18112C);
 }
 
+enum MolStrPreset {
+  nightInk,
+  paper,
+  highContrast,
+  orchid;
+
+  String get label => switch (this) {
+        nightInk => 'Night Ink',
+        paper => 'Paper',
+        highContrast => 'High Contrast',
+        orchid => 'Orchid',
+      };
+}
+
 class MolStrTheme {
-  static ThemeData dark() {
-    final base = ThemeData.dark(useMaterial3: true);
-    return base.copyWith(
-      scaffoldBackgroundColor: MolStrColors.ink,
-      primaryColor: MolStrColors.purple,
-      colorScheme: const ColorScheme.dark(
-        primary: MolStrColors.purple,
-        secondary: Colors.white,
-        surface: MolStrColors.cardDark,
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: MolStrColors.ink,
-        foregroundColor: Colors.white,
+  static ThemeData forPreset(MolStrPreset preset) {
+    final brightness = preset == MolStrPreset.paper
+        ? Brightness.light
+        : Brightness.dark;
+
+    final background = switch (preset) {
+      MolStrPreset.nightInk => MolStrColors.ink,
+      MolStrPreset.paper => const Color(0xFFFAF7F2),
+      MolStrPreset.highContrast => Colors.black,
+      MolStrPreset.orchid => const Color(0xFF261033),
+    };
+
+    final surface = switch (preset) {
+      MolStrPreset.nightInk => MolStrColors.cardDark,
+      MolStrPreset.paper => Colors.white,
+      MolStrPreset.highContrast => Colors.black,
+      MolStrPreset.orchid => const Color(0xFF391B49),
+    };
+
+    final accent = switch (preset) {
+      MolStrPreset.nightInk => MolStrColors.lightPurple,
+      MolStrPreset.paper => MolStrColors.deepPurple,
+      MolStrPreset.highContrast => Colors.white,
+      MolStrPreset.orchid => const Color(0xFFF0ABFC),
+    };
+
+    final foreground =
+        brightness == Brightness.dark ? Colors.white : const Color(0xFF21172E);
+
+    final scheme = ColorScheme.fromSeed(
+      seedColor: MolStrColors.purple,
+      brightness: brightness,
+    ).copyWith(
+      primary: accent,
+      onPrimary: brightness == Brightness.dark ? Colors.black : Colors.white,
+      surface: surface,
+      onSurface: foreground,
+      onSurfaceVariant: preset == MolStrPreset.highContrast
+          ? Colors.white
+          : null,
+      outline: preset == MolStrPreset.highContrast ? Colors.white : null,
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: background,
+      appBarTheme: AppBarTheme(
+        backgroundColor: background,
+        foregroundColor: foreground,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
       ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: MolStrColors.purple,
-        foregroundColor: Colors.white,
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: surface,
+        selectedItemColor: accent,
+        unselectedItemColor: scheme.onSurfaceVariant,
       ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: MolStrColors.ink,
-        selectedItemColor: MolStrColors.lightPurple,
-        unselectedItemColor: Colors.grey,
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: surface,
+        indicatorColor: scheme.primaryContainer,
       ),
-    );
-  }
-
-  static ThemeData light() {
-    final base = ThemeData.light(useMaterial3: true);
-    return base.copyWith(
-      scaffoldBackgroundColor: const Color(0xFFF8F7FC),
-      primaryColor: MolStrColors.purple,
-      colorScheme: const ColorScheme.light(
-        primary: MolStrColors.deepPurple,
-        secondary: MolStrColors.purple,
-      ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: MolStrColors.purple,
-        foregroundColor: Colors.white,
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: accent,
+        foregroundColor: scheme.onPrimary,
       ),
     );
   }

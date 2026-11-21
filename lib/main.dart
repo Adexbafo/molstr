@@ -1,158 +1,234 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'ui/theme/app_theme.dart';
-import 'features/donate/support_molstr.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+import 'features/donate/support_molstr.dart';
+import 'features/settings/settings_page.dart';
+import 'ui/theme/app_theme.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ProviderScope(child: MolStrApp()));
+  final preferences = await SharedPreferences.getInstance();
+
+  runApp(
+    ProviderScope(
+      child: MolStrApp(preferences: preferences),
+    ),
+  );
 }
 
-class MolStrApp extends StatelessWidget {
-  const MolStrApp({super.key});
+class MolStrApp extends StatefulWidget {
+  const MolStrApp({super.key, required this.preferences});
+
+  final SharedPreferences preferences;
+
+  @override
+  State<MolStrApp> createState() => _MolStrAppState();
+}
+
+class _MolStrAppState extends State<MolStrApp> {
+  late MolStrPreset _preset;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final saved = widget.preferences.getString('appearance.theme');
+    _preset = MolStrPreset.values.firstWhere(
+      (item) => item.name == saved,
+      orElse: () => MolStrPreset.nightInk,
+    );
+  }
+
+  Future<void> _changePreset(MolStrPreset preset) async {
+    setState(() => _preset = preset);
+
+    final saved = await widget.preferences.setString(
+      'appearance.theme',
+      preset.name,
+    );
+
+    if (!saved) {
+      throw StateError('Could not save theme preference');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'MolStr',
       debugShowCheckedModeBanner: false,
-      theme: MolStrTheme.light(),
-      darkTheme: MolStrTheme.dark(),
-      themeMode: ThemeMode.dark,
-      home: const MolStrShell(),
+      theme: MolStrTheme.forPreset(_preset),
+      home: MolStrShell(
+        preset: _preset,
+        onPresetChanged: _changePreset,
+      ),
     );
   }
 }
 
 class MolStrShell extends StatefulWidget {
-  const MolStrShell({super.key});
+  const MolStrShell({
+    super.key,
+    required this.preset,
+    required this.onPresetChanged,
+  });
+
+  final MolStrPreset preset;
+  final Future<void> Function(MolStrPreset) onPresetChanged;
 
   @override
   State<MolStrShell> createState() => _MolStrShellState();
 }
 
 class _MolStrShellState extends State<MolStrShell> {
-  int _currentIndex = 0;
+  int _index = 0;
 
-  final _titles = const ['Home', 'Games', 'Notifications', 'Wallet', 'Profile'];
+  static const _labels = [
+    'Home',
+    'Games',
+    'Notifications',
+    'Wallet',
+    'Profile',
+    'Settings',
+  ];
+
+  static const _icons = [
+    Icons.home_outlined,
+    Icons.sports_esports_outlined,
+    Icons.notifications_outlined,
+    Icons.account_balance_wallet_outlined,
+    Icons.person_outline,
+    Icons.settings_outlined,
+  ];
+
+  void _openSupport() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SupportMolStrPage(),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+
+    final pages = IndexedStack(
+      index: _index,
+      children: [
+        const Center(
+          child: Text(
+            'Home Feed\nNotes, replies, reposts, likes, zaps, and tips coming next.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const Center(
+          child: Text('Nostr games showcase — coming next.'),
+        ),
+        const Center(child: Text('Notifications — coming next.')),
+        const Center(
+          child: Text('Wallet — NWC and Monero handoff coming next.'),
+        ),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.person_outline, size: 64),
+              const SizedBox(height: 12),
+              const Text('Profile setup — coming next.'),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: _openSupport,
+                icon: const Icon(Icons.favorite_outline),
+                label: const Text('Support MolStr'),
+              ),
+            ],
+          ),
+        ),
+        SettingsPage(
+          preset: widget.preset,
+          onPresetChanged: widget.onPresetChanged,
+        ),
+      ],
+    );
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: MolStrColors.purple,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Center(
-                child: Text(
-                  'M',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
+            SvgPicture.asset(
+              'assets/logo/molstr_icon.svg',
+              width: 32,
+              height: 32,
+              semanticsLabel: 'MolStr logo',
             ),
             const SizedBox(width: 12),
-            Text(
-              _titles[_currentIndex],
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            Text('MolStr · ${_labels[_index]}'),
           ],
         ),
         actions: [
           IconButton(
             tooltip: 'Support MolStr',
-            icon: const Icon(Icons.favorite, color: MolStrColors.lightPurple),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SupportMolStrPage()),
-              );
-            },
+            onPressed: _openSupport,
+            icon: const Icon(Icons.favorite_outline),
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: const [
-          Center(child: Text('Home Feed\n(Notes, Likes, Reposts, Zaps, Tips)', textAlign: TextAlign.center)),
-          Center(child: Text('Nostr Games Showcase\n(NIP-89 Kind 31990 Discovery)', textAlign: TextAlign.center)),
-          Center(child: Text('Notifications', textAlign: TextAlign.center)),
-          Center(child: Text('Wallet\n(NWC Bitcoin Zaps + Monero Tips)', textAlign: TextAlign.center)),
-          ProfilePlaceholderTab(),
-        ],
+      body: SafeArea(
+        child: wide
+            ? Row(
+                children: [
+                  NavigationRail(
+                    selectedIndex: _index,
+                    labelType: NavigationRailLabelType.all,
+                    onDestinationSelected: (index) {
+                      setState(() => _index = index);
+                    },
+                    destinations: [
+                      for (var i = 0; i < _labels.length; i++)
+                        NavigationRailDestination(
+                          icon: Icon(_icons[i]),
+                          label: Text(_labels[i]),
+                        ),
+                    ],
+                  ),
+                  const VerticalDivider(width: 1),
+                  Expanded(child: pages),
+                ],
+              )
+            : pages,
       ),
-      floatingActionButton: _currentIndex == 0
+      bottomNavigationBar: wide
+          ? null
+          : BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              currentIndex: _index,
+              selectedFontSize: 10,
+              unselectedFontSize: 10,
+              onTap: (index) => setState(() => _index = index),
+              items: [
+                for (var i = 0; i < _labels.length; i++)
+                  BottomNavigationBarItem(
+                    icon: Icon(_icons[i]),
+                    label: i == 2 ? 'Alerts' : _labels[i],
+                  ),
+              ],
+            ),
+      floatingActionButton: _index == 0
           ? FloatingActionButton(
+              tooltip: 'Create note',
               onPressed: () {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Note composer coming next slice')),
+                  const SnackBar(
+                    content: Text('The note composer is not implemented yet.'),
+                  ),
                 );
               },
               child: const Icon(Icons.add),
             )
           : null,
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.sports_esports), label: 'Games'),
-          BottomNavigationBarItem(icon: Icon(Icons.notifications), label: 'Notifs'),
-          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'Wallet'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-        ],
-      ),
-    );
-  }
-}
-
-class ProfilePlaceholderTab extends StatelessWidget {
-  const ProfilePlaceholderTab({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircleAvatar(
-            radius: 36,
-            backgroundColor: MolStrColors.purple,
-            child: Icon(Icons.person, size: 40, color: Colors.white),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'MolStr',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'MolStr@rizful.com',
-            style: TextStyle(color: MolStrColors.lightPurple),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SupportMolStrPage()),
-              );
-            },
-            icon: const Icon(Icons.favorite),
-            label: const Text('Support MolStr Project'),
-          ),
-        ],
-      ),
     );
   }
 }
