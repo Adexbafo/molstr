@@ -7,6 +7,9 @@ import 'features/donate/support_molstr.dart';
 import 'features/settings/settings_page.dart';
 import 'ui/theme/app_theme.dart';
 
+const _themeKey = 'appearance.theme';
+const _fontKey = 'appearance.font';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final preferences = await SharedPreferences.getInstance();
@@ -16,6 +19,13 @@ Future<void> main() async {
       child: MolStrApp(preferences: preferences),
     ),
   );
+}
+
+T _readEnum<T extends Enum>(List<T> values, String? name, T fallback) {
+  for (final value in values) {
+    if (value.name == name) return value;
+  }
+  return fallback;
 }
 
 class MolStrApp extends StatefulWidget {
@@ -29,29 +39,38 @@ class MolStrApp extends StatefulWidget {
 
 class _MolStrAppState extends State<MolStrApp> {
   late MolStrPreset _preset;
+  late MolStrFont _font;
 
   @override
   void initState() {
     super.initState();
-
-    final saved = widget.preferences.getString('appearance.theme');
-    _preset = MolStrPreset.values.firstWhere(
-      (item) => item.name == saved,
-      orElse: () => MolStrPreset.nightInk,
+    _preset = _readEnum(
+      MolStrPreset.values,
+      widget.preferences.getString(_themeKey),
+      MolStrPreset.nightInk,
     );
+    _font = _readEnum(
+      MolStrFont.values,
+      widget.preferences.getString(_fontKey),
+      MolStrFont.system,
+    );
+  }
+
+  Future<void> _savePreference(String key, String value) async {
+    final saved = await widget.preferences.setString(key, value);
+    if (!saved) {
+      throw StateError('Could not save $key');
+    }
   }
 
   Future<void> _changePreset(MolStrPreset preset) async {
     setState(() => _preset = preset);
+    await _savePreference(_themeKey, preset.name);
+  }
 
-    final saved = await widget.preferences.setString(
-      'appearance.theme',
-      preset.name,
-    );
-
-    if (!saved) {
-      throw StateError('Could not save theme preference');
-    }
+  Future<void> _changeFont(MolStrFont font) async {
+    setState(() => _font = font);
+    await _savePreference(_fontKey, font.name);
   }
 
   @override
@@ -59,10 +78,12 @@ class _MolStrAppState extends State<MolStrApp> {
     return MaterialApp(
       title: 'MolStr',
       debugShowCheckedModeBanner: false,
-      theme: MolStrTheme.forPreset(_preset),
+      theme: MolStrTheme.forPreset(_preset, _font),
       home: MolStrShell(
         preset: _preset,
+        font: _font,
         onPresetChanged: _changePreset,
+        onFontChanged: _changeFont,
       ),
     );
   }
@@ -72,11 +93,15 @@ class MolStrShell extends StatefulWidget {
   const MolStrShell({
     super.key,
     required this.preset,
+    required this.font,
     required this.onPresetChanged,
+    required this.onFontChanged,
   });
 
   final MolStrPreset preset;
+  final MolStrFont font;
   final Future<void> Function(MolStrPreset) onPresetChanged;
+  final Future<void> Function(MolStrFont) onFontChanged;
 
   @override
   State<MolStrShell> createState() => _MolStrShellState();
@@ -105,9 +130,7 @@ class _MolStrShellState extends State<MolStrShell> {
 
   void _openSupport() {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const SupportMolStrPage(),
-      ),
+      MaterialPageRoute<void>(builder: (_) => const SupportMolStrPage()),
     );
   }
 
@@ -124,12 +147,10 @@ class _MolStrShellState extends State<MolStrShell> {
             textAlign: TextAlign.center,
           ),
         ),
+        const Center(child: Text('Nostr games showcase: coming next.')),
+        const Center(child: Text('Notifications: coming next.')),
         const Center(
-          child: Text('Nostr games showcase — coming next.'),
-        ),
-        const Center(child: Text('Notifications — coming next.')),
-        const Center(
-          child: Text('Wallet — NWC and Monero handoff coming next.'),
+          child: Text('Wallet: NWC and Monero handoff coming next.'),
         ),
         Center(
           child: Column(
@@ -137,7 +158,7 @@ class _MolStrShellState extends State<MolStrShell> {
             children: [
               const Icon(Icons.person_outline, size: 64),
               const SizedBox(height: 12),
-              const Text('Profile setup — coming next.'),
+              const Text('Profile setup: coming next.'),
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 onPressed: _openSupport,
@@ -149,7 +170,9 @@ class _MolStrShellState extends State<MolStrShell> {
         ),
         SettingsPage(
           preset: widget.preset,
+          font: widget.font,
           onPresetChanged: widget.onPresetChanged,
+          onFontChanged: widget.onFontChanged,
         ),
       ],
     );

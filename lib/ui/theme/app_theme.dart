@@ -22,11 +22,33 @@ enum MolStrPreset {
       };
 }
 
+enum MolStrFont {
+  system,
+  atkinson,
+  jetbrainsMono;
+
+  String get label => switch (this) {
+        system => 'System default',
+        atkinson => 'Atkinson Hyperlegible',
+        jetbrainsMono => 'JetBrains Mono',
+      };
+
+  /// Family name must match the `family:` in pubspec.yaml.
+  /// Null means use the operating system's default font.
+  String? get family => switch (this) {
+        system => null,
+        atkinson => 'Atkinson Hyperlegible',
+        jetbrainsMono => 'JetBrains Mono',
+      };
+}
+
 class MolStrTheme {
-  static ThemeData forPreset(MolStrPreset preset) {
-    final brightness = preset == MolStrPreset.paper
-        ? Brightness.light
-        : Brightness.dark;
+  static ThemeData forPreset(
+    MolStrPreset preset, [
+    MolStrFont font = MolStrFont.system,
+  ]) {
+    final brightness =
+        preset == MolStrPreset.paper ? Brightness.light : Brightness.dark;
 
     final background = switch (preset) {
       MolStrPreset.nightInk => MolStrColors.ink,
@@ -60,13 +82,12 @@ class MolStrTheme {
       onPrimary: brightness == Brightness.dark ? Colors.black : Colors.white,
       surface: surface,
       onSurface: foreground,
-      onSurfaceVariant: preset == MolStrPreset.highContrast
-          ? Colors.white
-          : null,
+      onSurfaceVariant:
+          preset == MolStrPreset.highContrast ? Colors.white : null,
       outline: preset == MolStrPreset.highContrast ? Colors.white : null,
     );
 
-    return ThemeData(
+    final theme = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
@@ -90,6 +111,10 @@ class MolStrTheme {
         backgroundColor: accent,
         foregroundColor: scheme.onPrimary,
       ),
+    );
+
+    return theme.copyWith(
+      textTheme: theme.textTheme.apply(fontFamily: font.family),
     );
   }
 }
