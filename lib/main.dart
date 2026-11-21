@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'features/donate/support_molstr.dart';
 import 'features/settings/settings_page.dart';
 import 'ui/theme/app_theme.dart';
+import 'features/onboarding/onboarding_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -153,21 +154,33 @@ class _MolStrShellState extends State<MolStrShell> {
           child: Text('Wallet: NWC and Monero handoff coming next.'),
         ),
         Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.person_outline, size: 64),
-              const SizedBox(height: 12),
-              const Text('Profile setup: coming next.'),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: _openSupport,
-                icon: const Icon(Icons.favorite_outline),
-                label: const Text('Support MolStr'),
-              ),
-            ],
-          ),
-        ),
+                child: Column(
+                mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.person_outline, size: 64),
+                const SizedBox(height: 12),
+                const Text('No Nostr identity connected'),
+                const SizedBox(height: 16),
+      FilledButton.icon(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const OnboardingPage(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.key_outlined),
+        label: const Text('Get started'),
+      ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: _openSupport,
+        icon: const Icon(Icons.favorite_outline),
+        label: const Text('Support MolStr'),
+      ),
+    ],
+  ),
+),
         SettingsPage(
           preset: widget.preset,
           font: widget.font,
