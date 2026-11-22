@@ -4,7 +4,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/nostr/identity_service.dart';
+import 'core/nostr/relay_service.dart';
 import 'features/donate/support_molstr.dart';
+import 'features/home/home_feed_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/settings/settings_page.dart';
 import 'ui/theme/app_theme.dart';
@@ -45,12 +47,16 @@ class MolStrApp extends StatefulWidget {
 }
 
 class _MolStrAppState extends State<MolStrApp> {
+  late final RelayService _relayService;
   late MolStrPreset _preset;
   late MolStrFont _font;
+  late List<String> _relays;
 
   @override
   void initState() {
     super.initState();
+
+    _relayService = RelayService(preferences: widget.preferences);
 
     _preset = _readEnum(
       MolStrPreset.values,
@@ -63,6 +69,8 @@ class _MolStrAppState extends State<MolStrApp> {
       widget.preferences.getString(_fontKey),
       MolStrFont.system,
     );
+
+    _relays = _relayService.loadRelays();
   }
 
   Future<void> _savePreference(String key, String value) async {
@@ -82,6 +90,28 @@ class _MolStrAppState extends State<MolStrApp> {
     await _savePreference(_fontKey, font.name);
   }
 
+  Future<void> _addRelay(String rawUrl) async {
+    final normalized = RelayService.normalizeRelayUrl(rawUrl);
+    if (_relays.contains(normalized)) {
+      throw const FormatException('Relay is already in your list.');
+    }
+    final next = [..._relays, normalized];
+    setState(() => _relays = next);
+    await _relayService.saveRelays(next);
+  }
+
+  Future<void> _removeRelay(String url) async {
+    final next = _relays.where((item) => item != url).toList();
+    setState(() => _relays = next);
+    await _relayService.saveRelays(next);
+  }
+
+  Future<void> _resetRelays() async {
+    final next = List<String>.from(RelayService.defaultRelays);
+    setState(() => _relays = next);
+    await _relayService.saveRelays(next);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -93,6 +123,11 @@ class _MolStrAppState extends State<MolStrApp> {
         font: _font,
         onPresetChanged: _changePreset,
         onFontChanged: _changeFont,
+        relays: _relays,
+        relayService: _relayService,
+        onAddRelay: _addRelay,
+        onRemoveRelay: _removeRelay,
+        onResetRelays: _resetRelays,
       ),
     );
   }
@@ -105,12 +140,22 @@ class MolStrShell extends StatefulWidget {
     required this.font,
     required this.onPresetChanged,
     required this.onFontChanged,
+    required this.relays,
+    required this.relayService,
+    required this.onAddRelay,
+    required this.onRemoveRelay,
+    required this.onResetRelays,
   });
 
   final MolStrPreset preset;
   final MolStrFont font;
   final Future<void> Function(MolStrPreset) onPresetChanged;
   final Future<void> Function(MolStrFont) onFontChanged;
+  final List<String> relays;
+  final RelayService relayService;
+  final Future<void> Function(String url) onAddRelay;
+  final Future<void> Function(String url) onRemoveRelay;
+  final Future<void> Function() onResetRelays;
 
   @override
   State<MolStrShell> createState() => _MolStrShellState();
@@ -329,12 +374,10 @@ class _MolStrShellState extends State<MolStrShell> {
     final pages = IndexedStack(
       index: _index,
       children: [
-        const Center(
-          child: Text(
-            'Home Feed\n'
-            'Notes, replies, reposts, likes, zaps, and tips coming next.',
-            textAlign: TextAlign.center,
-          ),
+        HomeFeedPage(
+          relays: widget.relays,
+          relayService: widget.relayService,
+          onOpenRelaySettings: () => setState(() => _index = 5),
         ),
         const Center(child: Text('Nostr games showcase: coming next.')),
         const Center(child: Text('Notifications: coming next.')),
@@ -347,6 +390,10 @@ class _MolStrShellState extends State<MolStrShell> {
           font: widget.font,
           onPresetChanged: widget.onPresetChanged,
           onFontChanged: widget.onFontChanged,
+          relays: widget.relays,
+          onAddRelay: widget.onAddRelay,
+          onRemoveRelay: widget.onRemoveRelay,
+          onResetRelays: widget.onResetRelays,
         ),
       ],
     );
@@ -419,8 +466,7 @@ class _MolStrShellState extends State<MolStrShell> {
               onPressed: () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content:
-                        Text('The note composer is not implemented yet.'),
+                    content: Text('Note publishing comes in the next slice.'),
                   ),
                 );
               },
