@@ -14,9 +14,13 @@ class FeedResult {
     required this.noteRelays,
     required this.connectedRelays,
     required this.failedRelays,
+    this.polls = const [],
+    this.articles = const [],
   });
 
   final List<NostrEvent> notes;
+  final List<NostrEvent> polls;
+  final List<NostrEvent> articles;
   final Map<String, ProfileMetadata> profiles;
   final Map<String, Set<String>> noteRelays;
   final List<String> connectedRelays;
@@ -221,10 +225,10 @@ class RelayService {
     await Future.wait(
       relays.map((relayUrl) async {
         try {
-            final filter = <String, dynamic>{
-              'kinds': [1, 1068],
-              'limit': limit,
-            };
+          final filter = <String, dynamic>{
+            'kinds': [1, 1068, 30023],
+            'limit': limit,
+          };
           if (authors != null) {
             filter['authors'] = authors;
           }
@@ -248,14 +252,34 @@ class RelayService {
     final verifiedNotes = await compute(_verifyRawEvents, rawNotes);
 
     final notesById = <String, NostrEvent>{};
+    final pollsById = <String, NostrEvent>{};
+    final articlesByKey = <String, NostrEvent>{};
     final noteRelays = <String, Set<String>>{};
+
     for (final item in verifiedNotes) {
-      if (item.event.kind != 1) continue;
-      notesById.putIfAbsent(item.event.id, () => item.event);
-      noteRelays.putIfAbsent(item.event.id, () => <String>{}).add(item.relay);
+      final event = item.event;
+      noteRelays.putIfAbsent(event.id, () => <String>{}).add(item.relay);
+
+      switch (event.kind) {
+        case 1:
+          notesById.putIfAbsent(event.id, () => event);
+        case 1068:
+          pollsById.putIfAbsent(event.id, () => event);
+        case 30023:
+          // Parametrized replaceable: dedupe by author + d tag, newest wins.
+          final key = '${event.pubkey}|${event.dTag}';
+          final existing = articlesByKey[key];
+          if (existing == null || event.createdAt > existing.createdAt) {
+            articlesByKey[key] = event;
+          }
+      }
     }
 
     final notes = notesById.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final polls = pollsById.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final articles = articlesByKey.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     debugPrint(
@@ -264,7 +288,11 @@ class RelayService {
 
     final profileAuthors = authors != null
         ? authors.toSet().toList()
-        : notes.map((n) => n.pubkey).toSet().take(25).toList();
+        : <String>{
+            ...notes.map((n) => n.pubkey),
+            ...polls.map((p) => p.pubkey),
+            ...articles.map((a) => a.pubkey),
+          }.take(50).toList();
     final profiles = <String, ProfileMetadata>{};
 
     if (connectedRelays.isNotEmpty && profileAuthors.isNotEmpty) {
@@ -300,10 +328,17 @@ class RelayService {
           profiles[profile.pubkey] = profile;
         }
       }
+
+      debugPrint(
+        'MolStr: ${profiles.length} verified profiles from '
+        '${rawProfiles.length} raw for ${profileAuthors.length} authors',
+      );
     }
 
     return FeedResult(
       notes: notes,
+      polls: polls,
+      articles: articles,
       profiles: profiles,
       noteRelays: noteRelays,
       connectedRelays: connectedRelays,

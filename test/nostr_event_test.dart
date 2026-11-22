@@ -45,4 +45,43 @@ void main() {
       throwsA(isA<FormatException>()),
     );
   });
+
+  test('poll event parses options, polltype and endsAt', () {
+    final event = NostrEvent.sign(
+      privateKeyHex: List.filled(32, '4c').join(),
+      kind: 1068,
+      content: 'Best chain?',
+      tags: [
+        ['option', '0', 'Bitcoin'],
+        ['option', '1', 'Monero'],
+        ['polltype', 'singlechoice'],
+        ['endsAt', '1900000000'],
+      ],
+      createdAt: 1700000000,
+    );
+
+    final poll = PollData.fromEvent(event)!;
+    expect(poll.options.length, 2);
+    expect(poll.options[0].label, 'Bitcoin');
+    expect(poll.multipleChoice, isFalse);
+    expect(poll.endsAt, 1900000000);
+  });
+
+  test('article event parses title and d tag', () {
+    final event = NostrEvent.sign(
+      privateKeyHex: List.filled(32, '5d').join(),
+      kind: 30023,
+      content: '# Hello\n\nBody text.',
+      tags: [
+        ['title', 'My Article'],
+        ['d', 'my-article-1'],
+      ],
+      createdAt: 1700000000,
+    );
+
+    final article = ArticleData.fromEvent(event)!;
+    expect(article.title, 'My Article');
+    expect(article.d, 'my-article-1');
+    expect(event.dTag, 'my-article-1');
+  });
 }

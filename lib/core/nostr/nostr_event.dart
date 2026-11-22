@@ -36,6 +36,13 @@ class NostrEvent {
         return marker == 'reply' || marker == 'root' || marker.isEmpty;
       });
 
+  String get dTag {
+    for (final tag in tags) {
+      if (tag.length >= 2 && tag[0] == 'd') return tag[1];
+    }
+    return '';
+  }
+
   static String computeId({
     required String pubkey,
     required int createdAt,
@@ -224,7 +231,7 @@ class ProfileMetadata {
           pubkey: event.pubkey,
           createdAt: event.createdAt,
           name: readField('name'),
-          displayName: readField('display_name'),
+          displayName: readField('display_name') ?? readField('displayName'),
           about: readField('about'),
           nip05: readField('nip05'),
           lud16: readField('lud16'),
@@ -234,5 +241,98 @@ class ProfileMetadata {
     } catch (_) {
       return null;
     }
+  }
+}
+
+class PollOption {
+  const PollOption(this.index, this.label);
+  final int index;
+  final String label;
+}
+
+/// Read-only view of a NIP-88 poll (kind 1068).
+/// Voting (kind 1018 responses) is a later slice — verify against
+/// https://github.com/nostr-protocol/nips/blob/master/88.md before then.
+class PollData {
+  const PollData({
+    required this.event,
+    required this.options,
+    required this.multipleChoice,
+    this.endsAt,
+  });
+
+  final NostrEvent event;
+  final List<PollOption> options;
+  final bool multipleChoice;
+  final int? endsAt;
+
+  static PollData? fromEvent(NostrEvent event) {
+    if (event.kind != 1068) return null;
+
+    final options = <PollOption>[];
+    var multiple = false;
+    int? endsAt;
+
+    for (final tag in event.tags) {
+      if (tag.isEmpty) continue;
+      switch (tag[0]) {
+        case 'option':
+          if (tag.length >= 3) {
+            final index = int.tryParse(tag[1]);
+            if (index != null) options.add(PollOption(index, tag[2]));
+          }
+        case 'polltype':
+          if (tag.length >= 2 && tag[1] == 'multiplechoice') multiple = true;
+        case 'endsAt':
+          if (tag.length >= 2) endsAt = int.tryParse(tag[1]);
+      }
+    }
+
+    if (options.length < 2) return null;
+    options.sort((a, b) => a.index.compareTo(b.index));
+    return PollData(
+      event: event,
+      options: options,
+      multipleChoice: multiple,
+      endsAt: endsAt,
+    );
+  }
+}
+
+/// Read-only view of a NIP-23 long-form article (kind 30023).
+class ArticleData {
+  const ArticleData({
+    required this.event,
+    required this.title,
+    this.summary,
+    required this.d,
+  });
+
+  final NostrEvent event;
+  final String title;
+  final String? summary;
+  final String d;
+
+  static ArticleData? fromEvent(NostrEvent event) {
+    if (event.kind != 30023) return null;
+
+    String? title;
+    String? summary;
+    var d = '';
+
+    for (final tag in event.tags) {
+      if (tag.length < 2) continue;
+      switch (tag[0]) {
+        case 'title':
+          title = tag[1];
+        case 'summary':
+          summary = tag[1];
+        case 'd':
+          d = tag[1];
+      }
+    }
+
+    if (title == null || title.isEmpty) return null;
+    return ArticleData(event: event, title: title, summary: summary, d: d);
   }
 }

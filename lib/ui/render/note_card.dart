@@ -77,7 +77,8 @@ class NoteCard extends StatelessWidget {
                         style: textTheme.titleSmall
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
-                      Text(shortNpub(npub), style: textTheme.bodySmall),
+                      if (bestName != shortNpub(npub))
+                        Text(shortNpub(npub), style: textTheme.bodySmall),
                       if (profile?.nip05 != null)
                         Nip05Badge(
                           identifier: profile!.nip05!,

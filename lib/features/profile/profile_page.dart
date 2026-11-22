@@ -7,6 +7,8 @@ import '../../ui/render/note_card.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
 import 'profile_editor_page.dart';
+import '../../core/nostr/nostr_event.dart';
+import '../../ui/render/poll_card.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -42,7 +44,7 @@ class _ProfilePageState extends State<ProfilePage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(length: 3, vsync: this);
     _load();
   }
 
@@ -105,6 +107,33 @@ class _ProfilePageState extends State<ProfilePage>
     }).toList();
   }
 
+  List<Widget> _pollCards() {
+    final result = _result;
+    if (result == null) return const [];
+    final parsed =
+        result.polls.map(PollData.fromEvent).whereType<PollData>().toList();
+    if (parsed.isEmpty) {
+      return const [
+        Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: Text('No polls found on your relays yet.'),
+          ),
+        ),
+      ];
+    }
+    return parsed
+        .map(
+          (poll) => PollCard(
+            poll: poll,
+            profile: result.profiles[poll.event.pubkey],
+            provenance: relayProvenance(result.noteRelays[poll.event.id]),
+            loadImages: widget.loadImages,
+          ),
+        )
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -141,6 +170,7 @@ class _ProfilePageState extends State<ProfilePage>
         (_result?.notes ?? const []).where((n) => !n.isReply).toList();
     final replies =
         (_result?.notes ?? const []).where((n) => n.isReply).toList();
+    final pollCount = (_result?.polls ?? const []).length;
 
     return Center(
       child: ConstrainedBox(
@@ -254,8 +284,7 @@ class _ProfilePageState extends State<ProfilePage>
                     icon: const Icon(Icons.favorite_outline),
                     label: const Text('Support MolStr'),
                   ),
-
-                                    const SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: () async {
                       final saved = await Navigator.of(context).push<bool>(
@@ -287,6 +316,7 @@ class _ProfilePageState extends State<ProfilePage>
               controller: _tabs,
               tabs: [
                 Tab(text: 'Notes (${notes.length})'),
+                Tab(text: 'Polls ($pollCount)'),
                 Tab(text: 'Replies (${replies.length})'),
               ],
             ),
@@ -297,6 +327,10 @@ class _ProfilePageState extends State<ProfilePage>
                   ListView(
                     padding: const EdgeInsets.all(16),
                     children: _notesTab(notes),
+                  ),
+                  ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: _pollCards(),
                   ),
                   ListView(
                     padding: const EdgeInsets.all(16),

@@ -112,8 +112,7 @@ class _ProfileEditorPageState extends State<ProfileEditorPage> {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Could not sign or publish the profile.')),
+        const SnackBar(content: Text('Could not sign or publish the profile.')),
       );
     }
   }

@@ -1,14 +1,15 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../core/nostr/blossom.dart';
 import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../core/text/hashtags.dart';
-import 'package:file_picker/file_picker.dart';
-import '../../core/nostr/blossom.dart';
-import 'dart:io';
 
-// De facto poll format (kind 1068; votes are kind 1070). Zap polls are
+// Poll events: kind 1068, responses kind 1018 (NIP-88). Zap polls are
 // NIP-75 kind 6969. Verify against https://github.com/nostr-protocol/nips
 // before relying on this in production.
 const _pollKind = 1068;
@@ -35,8 +36,10 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     2,
     (_) => TextEditingController(),
   );
+  final _titleController = TextEditingController();
+  final _summaryController = TextEditingController();
 
-  String _mode = 'note'; // 'note' | 'poll'
+  String _mode = 'note'; // 'note' | 'poll' | 'article'
   bool _multipleChoice = false;
   int _pollDurationHours = 24;
   bool _publishing = false;
@@ -70,12 +73,59 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     for (final c in _optionControllers) {
       c.dispose();
     }
+    _titleController.dispose();
+    _summaryController.dispose();
     super.dispose();
   }
 
   void _addOption() {
     if (_optionControllers.length >= 6) return;
     setState(() => _optionControllers.add(TextEditingController()));
+  }
+
+  Future<void> _insertGif() async {
+    final urlController = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Insert image URL'),
+        content: TextField(
+          controller: urlController,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(
+            labelText: 'Direct image URL',
+            hintText: 'https://example.com/animation.gif',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(context).pop(urlController.text.trim()),
+            child: const Text('Insert'),
+          ),
+        ],
+      ),
+    );
+    urlController.dispose();
+
+    if (url == null || url.isEmpty) return;
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme != 'https' || !uri.hasAuthority) {
+      _showMessage('Use a full https:// image URL.');
+      return;
+    }
+    final text = _controller.text;
+    final separator = text.isEmpty || text.endsWith('\n') ? '' : '\n';
+    _controller.text = '$text$separator$url';
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
   }
 
   Future<void> _attachImage() async {
@@ -115,7 +165,8 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
       _showMessage('Image uploaded. URL added to your note.');
     } catch (error) {
       _showMessage(
-          'Upload failed: ${error.toString().replaceFirst('Exception: ', '')}');
+        'Upload failed: ${error.toString().replaceFirst('Exception: ', '')}',
+      );
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
@@ -146,54 +197,6 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     };
   }
 
-  Future<void> _insertGif() async {
-    final urlController = TextEditingController();
-    final url = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Insert GIF'),
-        content: TextField(
-          controller: urlController,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: const InputDecoration(
-            labelText: 'Direct image URL',
-            hintText: 'https://example.com/animation.gif',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(urlController.text.trim()),
-            child: const Text('Insert'),
-          ),
-        ],
-      ),
-    );
-    urlController.dispose();
-
-    if (url == null || url.isEmpty) return;
-    final uri = Uri.tryParse(url);
-    if (uri == null || uri.scheme != 'https' || !uri.hasAuthority) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Use a full https:// image URL.')),
-      );
-      return;
-    }
-    final text = _controller.text;
-    final separator = text.isEmpty || text.endsWith('\n') ? '' : '\n';
-    _controller.text = '$text$separator$url';
-    _controller.selection = TextSelection.collapsed(
-      offset: _controller.text.length,
-    );
-  }
-
   Future<void> _publish() async {
     final content = _controller.text.trim();
     if (content.isEmpty) return;
@@ -203,7 +206,26 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     List<List<String>> tags;
     int kind;
 
-    if (_mode == 'poll') {
+    if (_mode == 'article') {
+      final title = _titleController.text.trim();
+      if (title.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('An article needs a title.')),
+        );
+        return;
+      }
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final slug = title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+      kind = 30023;
+      tags = [
+        ['title', title],
+        if (_summaryController.text.trim().isNotEmpty)
+          ['summary', _summaryController.text.trim()],
+        ['d', '$slug-$now'],
+        ['published_at', '$now'],
+        ...hashtagTags,
+      ];
+    } else if (_mode == 'poll') {
       final options = _optionControllers
           .map((c) => c.text.trim())
           .where((label) => label.isNotEmpty)
@@ -257,8 +279,10 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               for (final entry in results.entries)
-                Text('${Uri.tryParse(entry.key)?.host ?? entry.key}: '
-                    '${entry.value}'),
+                Text(
+                  '${Uri.tryParse(entry.key)?.host ?? entry.key}: '
+                  '${entry.value}',
+                ),
               if (okCount == 0) ...[
                 const SizedBox(height: 12),
                 const Text(
@@ -326,6 +350,11 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                   icon: Icon(Icons.poll),
                   label: Text('Poll'),
                 ),
+                ButtonSegment(
+                  value: 'article',
+                  icon: Icon(Icons.article),
+                  label: Text('Article'),
+                ),
               ],
               selected: {_mode},
               onSelectionChanged: _publishing
@@ -340,12 +369,35 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
               autofocus: true,
               enabled: !_publishing,
               decoration: InputDecoration(
-                hintText: _mode == 'poll'
-                    ? 'Ask your question…'
-                    : 'What’s happening? #hashtags',
+                hintText: switch (_mode) {
+                  'poll' => 'Ask your question…',
+                  'article' => 'Write your article in Markdown…',
+                  _ => 'What’s happening? #hashtags',
+                },
                 border: const OutlineInputBorder(),
               ),
             ),
+            if (_mode == 'article') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _titleController,
+                enabled: !_publishing,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _summaryController,
+                enabled: !_publishing,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Summary (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
             if (_hashtags.isNotEmpty) ...[
               const SizedBox(height: 8),
               Wrap(
@@ -382,7 +434,8 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(Icons.attach_file),
                 ),
                 TextButton.icon(
@@ -391,14 +444,15 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                   label: const Text('Image URL'),
                 ),
                 const Spacer(),
-                Text('${_controller.text.length} chars',
-                    style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  '${_controller.text.length} chars',
+                  style: textTheme.bodySmall,
+                ),
               ],
             ),
             const SizedBox(height: 8),
             TextField(
-              minLines: 1,
-              maxLines: 1,
+              controller: TextEditingController(text: _blossomServer),
               enabled: !_publishing && !_attaching,
               autocorrect: false,
               enableSuggestions: false,
@@ -467,12 +521,12 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                   border: OutlineInputBorder(),
                 ),
                 items: const [1, 6, 24, 72, 168]
-                    .map((h) => DropdownMenuItem(
-                          value: h,
-                          child: Text(
-                            h < 24 ? '${h}h' : '${h ~/ 24}d',
-                          ),
-                        ))
+                    .map(
+                      (h) => DropdownMenuItem(
+                        value: h,
+                        child: Text(h < 24 ? '${h}h' : '${h ~/ 24}d'),
+                      ),
+                    )
                     .toList(),
                 onChanged: _publishing
                     ? null
@@ -485,7 +539,8 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                 padding: const EdgeInsets.all(12),
                 child: Text(
                   'Publishes publicly to: ${widget.relays.join(', ')}\n'
-                  'This is irreversible and visible to anyone reading these relays.',
+                  'This is irreversible and visible to anyone reading '
+                  'these relays.',
                   style: textTheme.bodySmall,
                 ),
               ),

@@ -11,8 +11,7 @@ class Nip05Verifier {
   final _inFlight = <String, Future<bool>>{};
 
   Future<bool> verify(String identifier, String pubkeyHex) {
-    final key =
-        '${identifier.trim().toLowerCase()}|${pubkeyHex.toLowerCase()}';
+    final key = '${identifier.trim().toLowerCase()}|${pubkeyHex.toLowerCase()}';
     return _inFlight.putIfAbsent(
       key,
       () => _verify(key, identifier.trim(), pubkeyHex.toLowerCase()),
@@ -40,8 +39,8 @@ class Nip05Verifier {
       final name = identifier.substring(0, at).toLowerCase();
       final domain = identifier.substring(at + 1).toLowerCase();
       try {
-        final uri = Uri.https(
-            domain, '/.well-known/nostr.json', {'name': name});
+        final uri =
+            Uri.https(domain, '/.well-known/nostr.json', {'name': name});
         final res = await http.get(uri).timeout(const Duration(seconds: 8));
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body);

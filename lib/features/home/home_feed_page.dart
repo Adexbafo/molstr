@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart';
+import '../../ui/render/poll_card.dart';
+import '../../ui/render/article_card.dart';
+import '../../core/nostr/nostr_event.dart';
 
 class HomeFeedPage extends StatefulWidget {
   const HomeFeedPage({
@@ -191,6 +194,47 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
         ? result.notes.where((note) => !note.isReply).toList()
         : result.notes;
 
+    final parsedPolls =
+        result.polls.map(PollData.fromEvent).whereType<PollData>().toList();
+    final parsedArticles = result.articles
+        .map(ArticleData.fromEvent)
+        .whereType<ArticleData>()
+        .toList();
+
+    // (timestamp, card) pairs, newest first.
+    final feedItems = <(DateTime, Widget)>[
+      for (final note in visibleNotes)
+        (
+          DateTime.fromMillisecondsSinceEpoch(note.createdAt * 1000),
+          NoteCard(
+            event: note,
+            profile: result.profiles[note.pubkey],
+            provenance: relayProvenance(result.noteRelays[note.id]),
+            loadImages: widget.loadImages,
+          ),
+        ),
+      for (final poll in parsedPolls)
+        (
+          DateTime.fromMillisecondsSinceEpoch(poll.event.createdAt * 1000),
+          PollCard(
+            poll: poll,
+            profile: result.profiles[poll.event.pubkey],
+            provenance: relayProvenance(result.noteRelays[poll.event.id]),
+            loadImages: widget.loadImages,
+          ),
+        ),
+      for (final article in parsedArticles)
+        (
+          DateTime.fromMillisecondsSinceEpoch(article.event.createdAt * 1000),
+          ArticleCard(
+            article: article,
+            profile: result.profiles[article.event.pubkey],
+            provenance: relayProvenance(result.noteRelays[article.event.id]),
+            loadImages: widget.loadImages,
+          ),
+        ),
+    ]..sort((a, b) => b.$1.compareTo(a.$1));
+
     return Column(
       children: [
         Padding(
@@ -202,7 +246,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             children: [
               Text(
                 '${result.connectedRelays.length}/${widget.relays.length} relays connected'
-                ' · ${visibleNotes.length} verified notes',
+                ' · ${feedItems.length} items',
                 style: textTheme.bodySmall,
               ),
               FilterChip(
@@ -233,23 +277,15 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: visibleNotes.isEmpty
+          child: feedItems.isEmpty
               ? const Center(
                   child: Text('No matching notes returned from these relays.'),
                 )
-              : ListView.separated(
+              : ListView(
                   padding: const EdgeInsets.all(16),
-                  itemCount: visibleNotes.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final note = visibleNotes[index];
-                    return NoteCard(
-                      event: note,
-                      profile: result.profiles[note.pubkey],
-                      provenance: relayProvenance(result.noteRelays[note.id]),
-                      loadImages: widget.loadImages,
-                    );
-                  },
+                  children: [
+                    for (final (_, card) in feedItems) card,
+                  ],
                 ),
         ),
       ],
