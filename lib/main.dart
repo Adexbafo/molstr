@@ -30,10 +30,6 @@ T _readEnum<T extends Enum>(List<T> values, String? name, T fallback) {
   return fallback;
 }
 
-String _shortNpub(String npub) => npub.length <= 24
-    ? npub
-    : '${npub.substring(0, 14)}…${npub.substring(npub.length - 10)}';
-
 class MolStrApp extends StatefulWidget {
   const MolStrApp({super.key, required this.preferences});
   final SharedPreferences preferences;
@@ -276,8 +272,9 @@ class _MolStrShellState extends State<MolStrShell> {
   }
 
   Widget _profilePage() {
-    if (_identityLoading)
+    if (_identityLoading) {
       return const Center(child: CircularProgressIndicator());
+    }
     if (_identityError != null) {
       return Center(child: Text(_identityError!));
     }

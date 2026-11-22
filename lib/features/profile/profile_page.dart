@@ -106,6 +106,8 @@ class _ProfilePageState extends State<ProfilePage>
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final profile = _result?.profiles[widget.identity.pubkey];
+    final lud16 = profile?.lud16;
+    final moneroAddress = profile?.moneroAddress;
     final name = profile?.bestName ?? shortNpub(widget.identity.npub);
     final picture = profile?.picture;
     final banner = profile?.banner;
@@ -193,30 +195,33 @@ class _ProfilePageState extends State<ProfilePage>
                           const SizedBox(height: 8),
                           Text(profile!.about!),
                         ],
-                        if (profile?.lud16 != null) ...[
+                        if (lud16 != null) ...[
                           const SizedBox(height: 8),
                           InkWell(
-                            onTap: () => _copy(
-                                profile!.lud16!, 'Lightning address copied.'),
+                            onTap: () =>
+                                _copy(lud16, 'Lightning address copied.'),
                             child: Row(children: [
                               const Icon(Icons.bolt, size: 16),
                               const SizedBox(width: 4),
                               Flexible(
-                                  child: Text(profile!.lud16!,
-                                      overflow: TextOverflow.ellipsis)),
+                                child: Text(
+                                  lud16,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
                             ]),
                           ),
                         ],
-                        if (profile?.moneroAddress != null) ...[
+                        if (moneroAddress != null) ...[
                           const SizedBox(height: 4),
                           InkWell(
-                            onTap: () => _copy(profile!.moneroAddress!,
-                                'Monero address copied.'),
+                            onTap: () =>
+                                _copy(moneroAddress, 'Monero address copied.'),
                             child: Row(children: [
                               const Icon(Icons.lock_outline, size: 16),
                               const SizedBox(width: 4),
                               Flexible(
-                                  child: Text(profile!.moneroAddress!,
+                                  child: Text(moneroAddress,
                                       overflow: TextOverflow.ellipsis)),
                             ]),
                           ),

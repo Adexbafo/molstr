@@ -41,7 +41,7 @@ class Nip05Verifier {
       try {
         final uri =
             Uri.https(domain, '/.well-known/nostr.json', {'name': name});
-            final res = await http.get(uri).timeout(const Duration(seconds: 8));
+        final res = await http.get(uri).timeout(const Duration(seconds: 8));
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body);
           final names = body is Map ? body['names'] : null;

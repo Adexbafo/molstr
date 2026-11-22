@@ -4,7 +4,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../core/text/hashtags.dart';
-import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import '../../core/nostr/blossom.dart';
 import 'dart:io';
@@ -462,7 +461,7 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                     : (value) => setState(() => _multipleChoice = value),
               ),
               DropdownButtonFormField<int>(
-                value: _pollDurationHours,
+                initialValue: _pollDurationHours,
                 decoration: const InputDecoration(
                   labelText: 'Poll duration',
                   border: OutlineInputBorder(),

@@ -95,7 +95,7 @@ class Nip19 {
 
     final combined = [...words, ...checksum];
 
-    return lowerHrp + '1' + combined.map((value) => _charset[value]).join();
+    return '${lowerHrp}1${combined.map((value) => _charset[value]).join()}';
   }
 
   static Bech32Value decode(String input) {

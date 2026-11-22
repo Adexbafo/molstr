@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../../core/nostr/nostr_event.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart';
 
@@ -53,35 +51,6 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
       _loading = false;
       _lastRefreshToken = widget.refreshToken;
     });
-  }
-
-  Future<void> _copyNpub(String npub) async {
-    await Clipboard.setData(ClipboardData(text: npub));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Author npub copied.')),
-    );
-  }
-
-  String _shortNpub(String npub) {
-    if (npub.length <= 20) return npub;
-    return '${npub.substring(0, 12)}…${npub.substring(npub.length - 6)}';
-  }
-
-  String _formatTimestamp(int unixSeconds) {
-    final created = DateTime.fromMillisecondsSinceEpoch(unixSeconds * 1000);
-    final diff = DateTime.now().difference(created);
-    if (diff.inSeconds < 60) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
-
-  String _formatRelayHosts(Set<String>? urls) {
-    if (urls == null || urls.isEmpty) return '';
-    final hosts = urls.map((u) => Uri.tryParse(u)?.host ?? u).toList()..sort();
-    if (hosts.length == 1) return 'via ${hosts.first}';
-    return 'via ${hosts.first} +${hosts.length - 1}';
   }
 
   @override

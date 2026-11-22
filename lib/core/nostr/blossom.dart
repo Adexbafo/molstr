@@ -4,7 +4,6 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import 'identity_service.dart';
-import 'nip19.dart';
 
 class BlossomUpload {
   static Future<String> upload({
