@@ -176,7 +176,8 @@ class _RelaysPageState extends State<RelaysPage> {
                           value: relay.write,
                           onChanged: _saving
                               ? null
-                              : (value) => _update(relay.copyWith(write: value)),
+                              : (value) =>
+                                  _update(relay.copyWith(write: value)),
                         ),
                       ],
                     ),

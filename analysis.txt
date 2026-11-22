@@ -1,0 +1,17 @@
+Analyzing molstr...                                             
+
+warning • Unused import: 'nip19.dart'. Try removing the import directive • lib/core/nostr/blossom.dart:7:8 • unused_import
+   info • Use interpolation to compose strings and values. Try using string interpolation to build the composite string • lib/core/nostr/nip19.dart:98:12 • prefer_interpolation_to_compose_strings
+warning • Unused import: 'dart:convert'. Try removing the import directive • lib/features/composer/note_composer_page.dart:7:8 • unused_import
+   info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement • lib/features/composer/note_composer_page.dart:465:17 • deprecated_member_use
+warning • Unused import: '../../core/nostr/nostr_event.dart'. Try removing the import directive • lib/features/home/home_feed_page.dart:4:8 • unused_import
+warning • The declaration '_copyNpub' isn't referenced. Try removing the declaration of '_copyNpub' • lib/features/home/home_feed_page.dart:58:16 • unused_element
+warning • The declaration '_shortNpub' isn't referenced. Try removing the declaration of '_shortNpub' • lib/features/home/home_feed_page.dart:66:10 • unused_element
+warning • The declaration '_formatTimestamp' isn't referenced. Try removing the declaration of '_formatTimestamp' • lib/features/home/home_feed_page.dart:71:10 • unused_element
+warning • The declaration '_formatRelayHosts' isn't referenced. Try removing the declaration of '_formatRelayHosts' • lib/features/home/home_feed_page.dart:80:10 • unused_element
+warning • The '!' will have no effect because the receiver can't be null. Try removing the '!' operator • lib/features/profile/profile_page.dart:200:40 • unnecessary_non_null_assertion
+warning • The '!' will have no effect because the receiver can't be null. Try removing the '!' operator • lib/features/profile/profile_page.dart:213:55 • unnecessary_non_null_assertion
+warning • The declaration '_shortNpub' isn't referenced. Try removing the declaration of '_shortNpub' • lib/main.dart:33:8 • unused_element
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/main.dart:280:7 • curly_braces_in_flow_control_structures
+
+13 issues found. (ran in 9.0s)

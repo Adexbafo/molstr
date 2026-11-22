@@ -8,40 +8,35 @@ import 'core/nostr/relay_service.dart';
 import 'features/donate/support_molstr.dart';
 import 'features/home/home_feed_page.dart';
 import 'features/onboarding/onboarding_page.dart';
+import 'features/profile/profile_page.dart';
 import 'features/settings/settings_page.dart';
 import 'ui/theme/app_theme.dart';
+import 'features/composer/note_composer_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
+const _imagesKey = 'privacy.loadImages';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final preferences = await SharedPreferences.getInstance();
-
-  runApp(
-    ProviderScope(
-      child: MolStrApp(preferences: preferences),
-    ),
-  );
+  runApp(ProviderScope(child: MolStrApp(preferences: preferences)));
 }
 
 T _readEnum<T extends Enum>(List<T> values, String? name, T fallback) {
-  for (final value in values) {
-    if (value.name == name) return value;
+  for (final v in values) {
+    if (v.name == name) return v;
   }
   return fallback;
 }
 
-String _shortNpub(String npub) {
-  if (npub.length <= 24) return npub;
-  return '${npub.substring(0, 14)}…${npub.substring(npub.length - 10)}';
-}
+String _shortNpub(String npub) => npub.length <= 24
+    ? npub
+    : '${npub.substring(0, 14)}…${npub.substring(npub.length - 10)}';
 
 class MolStrApp extends StatefulWidget {
   const MolStrApp({super.key, required this.preferences});
-
   final SharedPreferences preferences;
-
   @override
   State<MolStrApp> createState() => _MolStrAppState();
 }
@@ -50,44 +45,39 @@ class _MolStrAppState extends State<MolStrApp> {
   late final RelayService _relayService;
   late MolStrPreset _preset;
   late MolStrFont _font;
+  late bool _loadImages;
   late List<String> _relays;
 
   @override
   void initState() {
     super.initState();
-
     _relayService = RelayService(preferences: widget.preferences);
-
-    _preset = _readEnum(
-      MolStrPreset.values,
-      widget.preferences.getString(_themeKey),
-      MolStrPreset.nightInk,
-    );
-
-    _font = _readEnum(
-      MolStrFont.values,
-      widget.preferences.getString(_fontKey),
-      MolStrFont.system,
-    );
-
+    _preset = _readEnum(MolStrPreset.values,
+        widget.preferences.getString(_themeKey), MolStrPreset.nightInk);
+    _font = _readEnum(MolStrFont.values, widget.preferences.getString(_fontKey),
+        MolStrFont.system);
+    _loadImages = widget.preferences.getBool(_imagesKey) ?? false;
     _relays = _relayService.loadRelays();
   }
 
-  Future<void> _savePreference(String key, String value) async {
+  Future<void> _savePermission(String key, String value) async {
     final saved = await widget.preferences.setString(key, value);
-    if (!saved) {
-      throw StateError('Could not save $key');
-    }
+    if (!saved) throw StateError('Could not save $key');
   }
 
-  Future<void> _changePreset(MolStrPreset preset) async {
-    setState(() => _preset = preset);
-    await _savePreference(_themeKey, preset.name);
+  Future<void> _changePreset(MolStrPreset p) async {
+    setState(() => _preset = p);
+    await _savePermission(_themeKey, p.name);
   }
 
-  Future<void> _changeFont(MolStrFont font) async {
-    setState(() => _font = font);
-    await _savePreference(_fontKey, font.name);
+  Future<void> _changeFont(MolStrFont f) async {
+    setState(() => _font = f);
+    await _savePermission(_fontKey, f.name);
+  }
+
+  Future<void> _changeLoadImages(bool value) async {
+    setState(() => _loadImages = value);
+    await widget.preferences.setBool(_imagesKey, value);
   }
 
   Future<void> _addRelay(String rawUrl) async {
@@ -101,7 +91,7 @@ class _MolStrAppState extends State<MolStrApp> {
   }
 
   Future<void> _removeRelay(String url) async {
-    final next = _relays.where((item) => item != url).toList();
+    final next = _relays.where((r) => r != url).toList();
     setState(() => _relays = next);
     await _relayService.saveRelays(next);
   }
@@ -113,24 +103,24 @@ class _MolStrAppState extends State<MolStrApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MolStr',
-      debugShowCheckedModeBanner: false,
-      theme: MolStrTheme.forPreset(_preset, _font),
-      home: MolStrShell(
-        preset: _preset,
-        font: _font,
-        onPresetChanged: _changePreset,
-        onFontChanged: _changeFont,
-        relays: _relays,
-        relayService: _relayService,
-        onAddRelay: _addRelay,
-        onRemoveRelay: _removeRelay,
-        onResetRelays: _resetRelays,
-      ),
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'MolStr',
+        debugShowCheckedModeBanner: false,
+        theme: MolStrTheme.forPreset(_preset, _font),
+        home: MolStrShell(
+          preset: _preset,
+          font: _font,
+          loadImages: _loadImages,
+          onPresetChanged: _changePreset,
+          onFontChanged: _changeFont,
+          onLoadImagesChanged: _changeLoadImages,
+          relays: _relays,
+          relayService: _relayService,
+          onAddRelay: _addRelay,
+          onRemoveRelay: _removeRelay,
+          onResetRelays: _resetRelays,
+        ),
+      );
 }
 
 class MolStrShell extends StatefulWidget {
@@ -138,8 +128,10 @@ class MolStrShell extends StatefulWidget {
     super.key,
     required this.preset,
     required this.font,
+    required this.loadImages,
     required this.onPresetChanged,
     required this.onFontChanged,
+    required this.onLoadImagesChanged,
     required this.relays,
     required this.relayService,
     required this.onAddRelay,
@@ -149,8 +141,10 @@ class MolStrShell extends StatefulWidget {
 
   final MolStrPreset preset;
   final MolStrFont font;
+  final bool loadImages;
   final Future<void> Function(MolStrPreset) onPresetChanged;
   final Future<void> Function(MolStrFont) onFontChanged;
+  final Future<void> Function(bool) onLoadImagesChanged;
   final List<String> relays;
   final RelayService relayService;
   final Future<void> Function(String url) onAddRelay;
@@ -165,7 +159,7 @@ class _MolStrShellState extends State<MolStrShell> {
   final _identityService = IdentityService();
 
   int _index = 0;
-
+  int _feedRefreshToken = 0;
   Identity? _identity;
   bool _identityLoading = true;
   String? _identityError;
@@ -178,7 +172,6 @@ class _MolStrShellState extends State<MolStrShell> {
     'Profile',
     'Settings',
   ];
-
   static const _icons = [
     Icons.home_outlined,
     Icons.sports_esports_outlined,
@@ -199,38 +192,45 @@ class _MolStrShellState extends State<MolStrShell> {
       _identityLoading = true;
       _identityError = null;
     });
-
     try {
       final identity = await _identityService.currentIdentity();
-
       if (!mounted) return;
-
       setState(() {
         _identity = identity;
         _identityLoading = false;
       });
     } catch (_) {
       if (!mounted) return;
-
       setState(() {
         _identity = null;
         _identityLoading = false;
-        _identityError =
-            'Could not read identity from secure storage. Check your '
-            'keyring, then retry.';
+        _identityError = 'Could not read identity from secure storage.';
       });
     }
   }
 
   Future<void> _openOnboarding() async {
     final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const OnboardingPage()),
+    );
+    if (saved == true) await _loadIdentity();
+  }
+
+  Future<void> _openComposer() async {
+    final published = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (_) => const OnboardingPage(),
+        builder: (_) => NoteComposerPage(
+          identityService: _identityService,
+          relayService: widget.relayService,
+          relays: widget.relays,
+        ),
       ),
     );
-
-    if (saved == true) {
-      await _loadIdentity();
+    if (published == true && mounted) {
+      setState(() => _feedRefreshToken++);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Published. Refreshing feed…')),
+      );
     }
   }
 
@@ -245,35 +245,26 @@ class _MolStrShellState extends State<MolStrShell> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Remove'),
-          ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove')),
         ],
       ),
     );
-
     if (confirmed != true) return;
-
     try {
       await _identityService.deleteIdentity();
       await _loadIdentity();
-
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Local key removed.')),
       );
     } catch (_) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not remove the local key.'),
-        ),
+        const SnackBar(content: Text('Could not remove the local key.')),
       );
     }
   }
@@ -284,35 +275,13 @@ class _MolStrShellState extends State<MolStrShell> {
     );
   }
 
-  Widget _buildProfilePage() {
-    if (_identityLoading) {
+  Widget _profilePage() {
+    if (_identityLoading)
       return const Center(child: CircularProgressIndicator());
-    }
-
     if (_identityError != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.lock_outline, size: 56),
-              const SizedBox(height: 12),
-              Text(_identityError!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _loadIdentity,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
+      return Center(child: Text(_identityError!));
     }
-
     final identity = _identity;
-
     if (identity == null) {
       return Center(
         child: Column(
@@ -327,43 +296,17 @@ class _MolStrShellState extends State<MolStrShell> {
               icon: const Icon(Icons.key_outlined),
               label: const Text('Get started'),
             ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _openSupport,
-              icon: const Icon(Icons.favorite_outline),
-              label: const Text('Support MolStr'),
-            ),
           ],
         ),
       );
     }
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.key_outlined, size: 64),
-          const SizedBox(height: 12),
-          const Text('Local key connected'),
-          const SizedBox(height: 8),
-          SelectableText(
-            _shortNpub(identity.npub),
-            style: const TextStyle(fontSize: 12),
-          ),
-          const SizedBox(height: 20),
-          OutlinedButton.icon(
-            onPressed: _openSupport,
-            icon: const Icon(Icons.favorite_outline),
-            label: const Text('Support MolStr'),
-          ),
-          const SizedBox(height: 8),
-          TextButton.icon(
-            onPressed: _removeIdentity,
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('Remove local key'),
-          ),
-        ],
-      ),
+    return ProfilePage(
+      identity: identity,
+      relayService: widget.relayService,
+      relays: widget.relays,
+      loadImages: widget.loadImages,
+      onOpenSupport: _openSupport,
+      onRemoveIdentity: _removeIdentity,
     );
   }
 
@@ -378,18 +321,21 @@ class _MolStrShellState extends State<MolStrShell> {
           relays: widget.relays,
           relayService: widget.relayService,
           onOpenRelaySettings: () => setState(() => _index = 5),
+          loadImages: widget.loadImages,
+          refreshToken: _feedRefreshToken,
         ),
         const Center(child: Text('Nostr games showcase: coming next.')),
         const Center(child: Text('Notifications: coming next.')),
         const Center(
-          child: Text('Wallet: NWC and Monero handoff coming next.'),
-        ),
-        _buildProfilePage(),
+            child: Text('Wallet: NWC and Monero handoff coming next.')),
+        _profilePage(),
         SettingsPage(
           preset: widget.preset,
           font: widget.font,
           onPresetChanged: widget.onPresetChanged,
           onFontChanged: widget.onFontChanged,
+          loadImages: widget.loadImages,
+          onLoadImagesChanged: widget.onLoadImagesChanged,
           relays: widget.relays,
           onAddRelay: widget.onAddRelay,
           onRemoveRelay: widget.onRemoveRelay,
@@ -402,12 +348,8 @@ class _MolStrShellState extends State<MolStrShell> {
       appBar: AppBar(
         title: Row(
           children: [
-            SvgPicture.asset(
-              'assets/logo/molstr_icon.svg',
-              width: 32,
-              height: 32,
-              semanticsLabel: 'MolStr logo',
-            ),
+            SvgPicture.asset('assets/logo/molstr_icon.svg',
+                width: 32, height: 32, semanticsLabel: 'MolStr logo'),
             const SizedBox(width: 12),
             Text('MolStr · ${_labels[_index]}'),
           ],
@@ -427,15 +369,11 @@ class _MolStrShellState extends State<MolStrShell> {
                   NavigationRail(
                     selectedIndex: _index,
                     labelType: NavigationRailLabelType.all,
-                    onDestinationSelected: (index) {
-                      setState(() => _index = index);
-                    },
+                    onDestinationSelected: (i) => setState(() => _index = i),
                     destinations: [
                       for (var i = 0; i < _labels.length; i++)
                         NavigationRailDestination(
-                          icon: Icon(_icons[i]),
-                          label: Text(_labels[i]),
-                        ),
+                            icon: Icon(_icons[i]), label: Text(_labels[i])),
                     ],
                   ),
                   const VerticalDivider(width: 1),
@@ -451,25 +389,18 @@ class _MolStrShellState extends State<MolStrShell> {
               currentIndex: _index,
               selectedFontSize: 10,
               unselectedFontSize: 10,
-              onTap: (index) => setState(() => _index = index),
+              onTap: (i) => setState(() => _index = i),
               items: [
                 for (var i = 0; i < _labels.length; i++)
                   BottomNavigationBarItem(
-                    icon: Icon(_icons[i]),
-                    label: i == 2 ? 'Alerts' : _labels[i],
-                  ),
+                      icon: Icon(_icons[i]),
+                      label: i == 2 ? 'Alerts' : _labels[i]),
               ],
             ),
       floatingActionButton: _index == 0
           ? FloatingActionButton(
               tooltip: 'Create note',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Note publishing comes in the next slice.'),
-                  ),
-                );
-              },
+              onPressed: _openComposer,
               child: const Icon(Icons.add),
             )
           : null,

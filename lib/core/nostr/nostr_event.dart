@@ -185,6 +185,8 @@ class ProfileMetadata {
     this.nip05,
     this.lud16,
     this.moneroAddress,
+    this.picture,
+    this.banner,
   });
 
   final String pubkey;
@@ -195,6 +197,8 @@ class ProfileMetadata {
   final String? nip05;
   final String? lud16;
   final String? moneroAddress;
+  final String? picture;
+  final String? banner;
 
   String get bestName {
     final dn = displayName?.trim();
@@ -217,15 +221,16 @@ class ProfileMetadata {
       }
 
       return ProfileMetadata(
-        pubkey: event.pubkey,
-        createdAt: event.createdAt,
-        name: readField('name'),
-        displayName: readField('display_name'),
-        about: readField('about'),
-        nip05: readField('nip05'),
-        lud16: readField('lud16'),
-        moneroAddress: readField('monero_address'),
-      );
+          pubkey: event.pubkey,
+          createdAt: event.createdAt,
+          name: readField('name'),
+          displayName: readField('display_name'),
+          about: readField('about'),
+          nip05: readField('nip05'),
+          lud16: readField('lud16'),
+          moneroAddress: readField('monero_address'),
+          picture: readField('picture'),
+          banner: readField('banner'));
     } catch (_) {
       return null;
     }

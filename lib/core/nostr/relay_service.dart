@@ -97,6 +97,79 @@ class RelayService {
     }
   }
 
+  /// Publishes [event] to [relays] and returns relay -> status.
+  /// 'ok' means the relay accepted it (NIP-01 ["OK", id, true, msg]).
+  Future<Map<String, String>> publishEvent(
+    NostrEvent event,
+    List<String> relays, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final results = <String, String>{};
+
+    await Future.wait(relays.map((relayUrl) async {
+      WebSocketChannel? channel;
+      StreamSubscription<dynamic>? subscription;
+
+      try {
+        channel = WebSocketChannel.connect(Uri.parse(relayUrl));
+        final ready = channel.ready;
+        ready.ignore();
+        await ready.timeout(timeout);
+
+        final done = Completer<String>();
+
+        subscription = channel.stream.listen(
+          (raw) {
+            if (raw is! String || done.isCompleted) return;
+            try {
+              final message = jsonDecode(raw);
+              if (message is List &&
+                  message.length >= 3 &&
+                  message[0] == 'OK' &&
+                  message[1] == event.id) {
+                final accepted = message[2] == true;
+                final reason = message.length > 3 && message[3] is String
+                    ? message[3] as String
+                    : '';
+                done.complete(
+                  accepted
+                      ? 'ok'
+                      : (reason.isEmpty ? 'rejected' : 'rejected: $reason'),
+                );
+              }
+            } catch (_) {}
+          },
+          onError: (_) {
+            if (!done.isCompleted) done.complete('failed');
+          },
+          onDone: () {
+            if (!done.isCompleted) done.complete('connection closed');
+          },
+        );
+
+        channel.sink.add(jsonEncode(['EVENT', event.toJson()]));
+
+        results[relayUrl] =
+            await done.future.timeout(timeout, onTimeout: () => 'timeout');
+        debugPrint('MolStr: publish -> $relayUrl: ${results[relayUrl]}');
+      } catch (error) {
+        results[relayUrl] = 'failed';
+        debugPrint('MolStr: publish failed on $relayUrl: $error');
+      } finally {
+        unawaited(subscription?.cancel());
+        final sink = channel?.sink;
+        if (sink != null) {
+          try {
+            sink.add(jsonEncode(['CLOSE', event.id]));
+          } catch (_) {}
+          unawaited(sink.close().catchError((_) {}));
+        }
+      }
+    }));
+
+    return results;
+  }
+
   static String normalizeRelayUrl(String input) {
     final trimmed = input.trim();
     if (trimmed.isEmpty) {
@@ -137,6 +210,7 @@ class RelayService {
     List<String> relays, {
     int limit = 20,
     void Function(String status)? onStatus,
+    List<String>? authors,
   }) async {
     final connectedRelays = <String>[];
     final failedRelays = <String>[];
@@ -147,12 +221,16 @@ class RelayService {
     await Future.wait(
       relays.map((relayUrl) async {
         try {
+          final filter = <String, dynamic>{
+            'kinds': [1],
+            'limit': limit,
+          };
+          if (authors != null) {
+            filter['authors'] = authors;
+          }
           final events = await _queryRelay(
             relayUrl,
-            {
-              'kinds': [1],
-              'limit': limit,
-            },
+            filter,
             timeout: const Duration(seconds: 6),
           ).timeout(const Duration(seconds: 12));
 
@@ -184,11 +262,13 @@ class RelayService {
       'MolStr: ${notes.length} verified notes from ${rawNotes.length} raw',
     );
 
-    final authors = notes.map((n) => n.pubkey).toSet().take(25).toList();
+    final profileAuthors = authors != null
+        ? authors.toSet().toList()
+        : notes.map((n) => n.pubkey).toSet().take(25).toList();
     final profiles = <String, ProfileMetadata>{};
 
-    if (connectedRelays.isNotEmpty && authors.isNotEmpty) {
-      onStatus?.call('Loading ${authors.length} author profiles...');
+    if (connectedRelays.isNotEmpty && profileAuthors.isNotEmpty) {
+      onStatus?.call('Loading ${profileAuthors.length} author profiles...');
       final rawProfiles = <_RawEvent>[];
 
       await Future.wait(
@@ -259,9 +339,7 @@ class RelayService {
             if (message is! List || message.length < 2) return;
             final type = message[0];
 
-            if (type == 'EVENT' &&
-                message.length >= 3 &&
-                message[1] == subId) {
+            if (type == 'EVENT' && message.length >= 3 && message[1] == subId) {
               final rawEvent = message[2];
               if (rawEvent is Map<String, dynamic>) {
                 events.add(rawEvent);

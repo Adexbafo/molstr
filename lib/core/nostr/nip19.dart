@@ -9,8 +9,7 @@ class Bech32Value {
 }
 
 class Nip19 {
-  static const _charset =
-      'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  static const _charset = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 
   static const _generators = [
     0x3b6a57b2,
@@ -53,10 +52,10 @@ class Nip19 {
     }
 
     final bytes = convertBits(
-  data: decoded.words,
-  from: 5,
-  to: 8,
-  pad: false,
+      data: decoded.words,
+      from: 5,
+      to: 8,
+      pad: false,
     );
 
     if (bytes.length != 32) {
@@ -96,9 +95,7 @@ class Nip19 {
 
     final combined = [...words, ...checksum];
 
-    return lowerHrp +
-        '1' +
-        combined.map((value) => _charset[value]).join();
+    return lowerHrp + '1' + combined.map((value) => _charset[value]).join();
   }
 
   static Bech32Value decode(String input) {
@@ -196,16 +193,13 @@ class Nip19 {
   }
 
   static String bytesToHex(List<int> bytes) {
-    return bytes
-        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
+    return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
   }
 
   static List<int> hexToBytes(String hex) {
     final normalized = hex.toLowerCase();
 
-    if (normalized.length.isOdd ||
-        RegExp(r'[^0-9a-f]').hasMatch(normalized)) {
+    if (normalized.length.isOdd || RegExp(r'[^0-9a-f]').hasMatch(normalized)) {
       throw const FormatException('Invalid hex string.');
     }
 

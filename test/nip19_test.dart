@@ -36,7 +36,7 @@ void main() {
     expect(generated.identity.pubkey.length, 64);
   });
 
-    test('matches official NIP-19 npub specification vector', () {
+  test('matches official NIP-19 npub specification vector', () {
     const pubkeyHex =
         '3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d';
     const expectedNpub =

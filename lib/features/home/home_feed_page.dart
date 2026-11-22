@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/nostr/nostr_event.dart';
 import '../../core/nostr/relay_service.dart';
+import '../../ui/render/note_card.dart';
 
 class HomeFeedPage extends StatefulWidget {
   const HomeFeedPage({
@@ -10,11 +11,15 @@ class HomeFeedPage extends StatefulWidget {
     required this.relays,
     required this.relayService,
     required this.onOpenRelaySettings,
+    required this.loadImages,
+    this.refreshToken = 0,
   });
+  final bool loadImages;
 
   final List<String> relays;
   final RelayService relayService;
   final VoidCallback onOpenRelaySettings;
+  final int refreshToken;
 
   @override
   State<HomeFeedPage> createState() => _HomeFeedPageState();
@@ -23,30 +28,32 @@ class HomeFeedPage extends StatefulWidget {
 class _HomeFeedPageState extends State<HomeFeedPage> {
   FeedResult? _result;
   bool _loading = false;
+  int _lastRefreshToken = 0;
   bool _hideReplies = true;
   String _status = '';
 
   Future<void> _loadFeed() async {
-  if (widget.relays.isEmpty) return;
+    if (widget.relays.isEmpty) return;
 
-  setState(() {
-    _loading = true;
-    _status = 'Connecting to ${widget.relays.length} relay(s)...';
-  });
+    setState(() {
+      _loading = true;
+      _status = 'Connecting to ${widget.relays.length} relay(s)...';
+    });
 
-  final result = await widget.relayService.fetchFeed(
-    widget.relays,
-    onStatus: (status) {
-      if (mounted) setState(() => _status = status);
-    },
-  );
-  if (!mounted) return;
+    final result = await widget.relayService.fetchFeed(
+      widget.relays,
+      onStatus: (status) {
+        if (mounted) setState(() => _status = status);
+      },
+    );
+    if (!mounted) return;
 
-  setState(() {
-    _result = result;
-    _loading = false;
-  });
-}
+    setState(() {
+      _result = result;
+      _loading = false;
+      _lastRefreshToken = widget.refreshToken;
+    });
+  }
 
   Future<void> _copyNpub(String npub) async {
     await Clipboard.setData(ClipboardData(text: npub));
@@ -72,12 +79,26 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
 
   String _formatRelayHosts(Set<String>? urls) {
     if (urls == null || urls.isEmpty) return '';
-    final hosts = urls
-        .map((u) => Uri.tryParse(u)?.host ?? u)
-        .toList()
-      ..sort();
+    final hosts = urls.map((u) => Uri.tryParse(u)?.host ?? u).toList()..sort();
     if (hosts.length == 1) return 'via ${hosts.first}';
     return 'via ${hosts.first} +${hosts.length - 1}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _lastRefreshToken = widget.refreshToken;
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeFeedPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshToken != _lastRefreshToken &&
+        _result != null &&
+        !_loading) {
+      _lastRefreshToken = widget.refreshToken;
+      _loadFeed();
+    }
   }
 
   @override
@@ -253,59 +274,11 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final note = visibleNotes[index];
-                    final profile = result.profiles[note.pubkey];
-                    final npub = note.authorNpub;
-                    final authorLabel =
-                        profile?.bestName ?? _shortNpub(npub);
-                    final provenance =
-                        _formatRelayHosts(result.noteRelays[note.id]);
-
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        authorLabel,
-                                        style: textTheme.titleSmall?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      Text(
-                                        _shortNpub(npub),
-                                        style: textTheme.bodySmall,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Text(
-                                  _formatTimestamp(note.createdAt),
-                                  style: textTheme.bodySmall,
-                                ),
-                                IconButton(
-                                  tooltip: 'Copy author npub',
-                                  onPressed: () => _copyNpub(npub),
-                                  icon: const Icon(Icons.copy, size: 16),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            SelectableText(note.content),
-                            if (provenance.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              Text(provenance, style: textTheme.bodySmall),
-                            ],
-                          ],
-                        ),
-                      ),
+                    return NoteCard(
+                      event: note,
+                      profile: result.profiles[note.pubkey],
+                      provenance: relayProvenance(result.noteRelays[note.id]),
+                      loadImages: widget.loadImages,
                     );
                   },
                 ),

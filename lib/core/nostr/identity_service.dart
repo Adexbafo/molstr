@@ -1,3 +1,4 @@
+import 'nostr_event.dart';
 import 'dart:math';
 
 import 'package:bip340/bip340.dart' as bip340;
@@ -92,6 +93,25 @@ class IdentityService {
     return Identity(
       pubkey: publicKeyHex,
       npub: Nip19.npubFromHex(publicKeyHex),
+    );
+  }
+
+  Future<NostrEvent> signEvent({
+    required int kind,
+    required String content,
+    List<List<String>> tags = const [],
+  }) async {
+    final nsec = await _storage.read(key: _nsecStorageKey);
+    if (nsec == null || nsec.isEmpty) {
+      throw StateError('No identity connected.');
+    }
+    // Hex exists only inside this call; never stored.
+    final hex = Nip19.hexFromNsec(nsec);
+    return NostrEvent.sign(
+      privateKeyHex: hex,
+      kind: kind,
+      content: content,
+      tags: tags,
     );
   }
 }

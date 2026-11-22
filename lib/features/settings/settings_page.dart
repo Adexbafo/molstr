@@ -12,6 +12,8 @@ class SettingsPage extends StatefulWidget {
     required this.onAddRelay,
     required this.onRemoveRelay,
     required this.onResetRelays,
+    required this.loadImages,
+    required this.onLoadImagesChanged,
   });
 
   final MolStrPreset preset;
@@ -22,6 +24,8 @@ class SettingsPage extends StatefulWidget {
   final Future<void> Function(String url) onAddRelay;
   final Future<void> Function(String url) onRemoveRelay;
   final Future<void> Function() onResetRelays;
+  final bool loadImages;
+  final Future<void> Function(bool) onLoadImagesChanged;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -192,6 +196,18 @@ class _SettingsPageState extends State<SettingsPage> {
             onPressed: () => _run(widget.onResetRelays),
             icon: const Icon(Icons.restore),
             label: const Text('Restore starter relays'),
+          ),
+        ),
+        const Divider(height: 48),
+        Text('Privacy', style: textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          value: widget.loadImages,
+          onChanged: (value) => _run(() => widget.onLoadImagesChanged(value)),
+          title: const Text('Load remote images'),
+          subtitle: const Text(
+            'Avatars, banners and note images are fetched from the hosts '
+            'storing them. They will see your IP address.',
           ),
         ),
       ],

@@ -29,7 +29,7 @@ class SupportMolStrPage extends StatelessWidget {
         children: [
           const Text(
             'MolStr is free and open source. Donations support project development. '
-            'MolStr adds no donation fee; wallet, provider, or network fees may apply.',  
+            'MolStr adds no donation fee; wallet, provider, or network fees may apply.',
             style: TextStyle(fontSize: 14, height: 1.4),
           ),
           const SizedBox(height: 24),
@@ -43,7 +43,8 @@ class SupportMolStrPage extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('⚡ Bitcoin Lightning',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
                   Center(
                     child: Container(
@@ -90,7 +91,8 @@ class SupportMolStrPage extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('🔒 Monero (XMR)',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
                   Center(
                     child: Container(
@@ -110,7 +112,8 @@ class SupportMolStrPage extends StatelessWidget {
                   const SizedBox(height: 12),
                   SelectableText(
                     molstrMonero,
-                    style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                    style:
+                        const TextStyle(fontSize: 11, fontFamily: 'monospace'),
                   ),
                   const SizedBox(height: 8),
                   Row(
