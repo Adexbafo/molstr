@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/nostr/identity_service.dart';
 import 'features/donate/support_molstr.dart';
+import 'features/onboarding/onboarding_page.dart';
 import 'features/settings/settings_page.dart';
 import 'ui/theme/app_theme.dart';
-import 'features/onboarding/onboarding_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -29,6 +30,11 @@ T _readEnum<T extends Enum>(List<T> values, String? name, T fallback) {
   return fallback;
 }
 
+String _shortNpub(String npub) {
+  if (npub.length <= 24) return npub;
+  return '${npub.substring(0, 14)}…${npub.substring(npub.length - 10)}';
+}
+
 class MolStrApp extends StatefulWidget {
   const MolStrApp({super.key, required this.preferences});
 
@@ -45,11 +51,13 @@ class _MolStrAppState extends State<MolStrApp> {
   @override
   void initState() {
     super.initState();
+
     _preset = _readEnum(
       MolStrPreset.values,
       widget.preferences.getString(_themeKey),
       MolStrPreset.nightInk,
     );
+
     _font = _readEnum(
       MolStrFont.values,
       widget.preferences.getString(_fontKey),
@@ -109,7 +117,13 @@ class MolStrShell extends StatefulWidget {
 }
 
 class _MolStrShellState extends State<MolStrShell> {
+  final _identityService = IdentityService();
+
   int _index = 0;
+
+  Identity? _identity;
+  bool _identityLoading = true;
+  String? _identityError;
 
   static const _labels = [
     'Home',
@@ -129,9 +143,182 @@ class _MolStrShellState extends State<MolStrShell> {
     Icons.settings_outlined,
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _loadIdentity();
+  }
+
+  Future<void> _loadIdentity() async {
+    setState(() {
+      _identityLoading = true;
+      _identityError = null;
+    });
+
+    try {
+      final identity = await _identityService.currentIdentity();
+
+      if (!mounted) return;
+
+      setState(() {
+        _identity = identity;
+        _identityLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _identity = null;
+        _identityLoading = false;
+        _identityError =
+            'Could not read identity from secure storage. Check your '
+            'keyring, then retry.';
+      });
+    }
+  }
+
+  Future<void> _openOnboarding() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const OnboardingPage(),
+      ),
+    );
+
+    if (saved == true) {
+      await _loadIdentity();
+    }
+  }
+
+  Future<void> _removeIdentity() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove local key?'),
+        content: const Text(
+          'This removes the stored private key from this device. '
+          'Make sure you have a backup before continuing.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _identityService.deleteIdentity();
+      await _loadIdentity();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Local key removed.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not remove the local key.'),
+        ),
+      );
+    }
+  }
+
   void _openSupport() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const SupportMolStrPage()),
+    );
+  }
+
+  Widget _buildProfilePage() {
+    if (_identityLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_identityError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.lock_outline, size: 56),
+              const SizedBox(height: 12),
+              Text(_identityError!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _loadIdentity,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final identity = _identity;
+
+    if (identity == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.person_outline, size: 64),
+            const SizedBox(height: 12),
+            const Text('No Nostr identity connected'),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _openOnboarding,
+              icon: const Icon(Icons.key_outlined),
+              label: const Text('Get started'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _openSupport,
+              icon: const Icon(Icons.favorite_outline),
+              label: const Text('Support MolStr'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.key_outlined, size: 64),
+          const SizedBox(height: 12),
+          const Text('Local key connected'),
+          const SizedBox(height: 8),
+          SelectableText(
+            _shortNpub(identity.npub),
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 20),
+          OutlinedButton.icon(
+            onPressed: _openSupport,
+            icon: const Icon(Icons.favorite_outline),
+            label: const Text('Support MolStr'),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _removeIdentity,
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Remove local key'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -144,7 +331,8 @@ class _MolStrShellState extends State<MolStrShell> {
       children: [
         const Center(
           child: Text(
-            'Home Feed\nNotes, replies, reposts, likes, zaps, and tips coming next.',
+            'Home Feed\n'
+            'Notes, replies, reposts, likes, zaps, and tips coming next.',
             textAlign: TextAlign.center,
           ),
         ),
@@ -153,34 +341,7 @@ class _MolStrShellState extends State<MolStrShell> {
         const Center(
           child: Text('Wallet: NWC and Monero handoff coming next.'),
         ),
-        Center(
-                child: Column(
-                mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.person_outline, size: 64),
-                const SizedBox(height: 12),
-                const Text('No Nostr identity connected'),
-                const SizedBox(height: 16),
-      FilledButton.icon(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const OnboardingPage(),
-            ),
-          );
-        },
-        icon: const Icon(Icons.key_outlined),
-        label: const Text('Get started'),
-      ),
-      const SizedBox(height: 8),
-      OutlinedButton.icon(
-        onPressed: _openSupport,
-        icon: const Icon(Icons.favorite_outline),
-        label: const Text('Support MolStr'),
-      ),
-    ],
-  ),
-),
+        _buildProfilePage(),
         SettingsPage(
           preset: widget.preset,
           font: widget.font,
@@ -258,7 +419,8 @@ class _MolStrShellState extends State<MolStrShell> {
               onPressed: () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('The note composer is not implemented yet.'),
+                    content:
+                        Text('The note composer is not implemented yet.'),
                   ),
                 );
               },

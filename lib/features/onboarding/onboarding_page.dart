@@ -1,12 +1,39 @@
 import 'package:flutter/material.dart';
 
+import 'create_key_page.dart';
+import 'import_key_page.dart';
+
 class OnboardingPage extends StatelessWidget {
   const OnboardingPage({super.key});
+
+  Future<void> _openCreate(BuildContext context) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const CreateKeyPage(),
+      ),
+    );
+
+    if (saved == true && context.mounted) {
+      Navigator.of(context).pop<bool>(true);
+    }
+  }
+
+  Future<void> _openImport(BuildContext context) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const ImportKeyPage(),
+      ),
+    );
+
+    if (saved == true && context.mounted) {
+      Navigator.of(context).pop<bool>(true);
+    }
+  }
 
   void _notReady(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Key setup is not implemented yet.'),
+        content: Text('Amber support is coming later.'),
       ),
     );
   }
@@ -66,15 +93,15 @@ class OnboardingPage extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               FilledButton.icon(
-                onPressed: () => _notReady(context),
+                onPressed: () => _openCreate(context),
                 icon: const Icon(Icons.add_circle_outline),
-                label: const Text('Create a new key — coming next'),
+                label: const Text('Create a new key'),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
-                onPressed: () => _notReady(context),
+                onPressed: () => _openImport(context),
                 icon: const Icon(Icons.download_outlined),
-                label: const Text('Import an existing key — coming next'),
+                label: const Text('Import an existing key'),
               ),
               const SizedBox(height: 8),
               if (Theme.of(context).platform == TargetPlatform.android)
