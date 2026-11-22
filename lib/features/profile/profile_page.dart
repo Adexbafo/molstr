@@ -6,6 +6,7 @@ import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
+import 'profile_editor_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -14,11 +15,13 @@ class ProfilePage extends StatefulWidget {
     required this.relayService,
     required this.relays,
     required this.loadImages,
+    required this.identityService,
     required this.onOpenSupport,
     required this.onRemoveIdentity,
   });
 
   final Identity identity;
+  final IdentityService identityService;
   final RelayService relayService;
   final List<String> relays;
   final bool loadImages;
@@ -250,6 +253,25 @@ class _ProfilePageState extends State<ProfilePage>
                     onPressed: widget.onOpenSupport,
                     icon: const Icon(Icons.favorite_outline),
                     label: const Text('Support MolStr'),
+                  ),
+
+                                    const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final saved = await Navigator.of(context).push<bool>(
+                        MaterialPageRoute<bool>(
+                          builder: (_) => ProfileEditorPage(
+                            identityService: widget.identityService,
+                            relayService: widget.relayService,
+                            relays: widget.relays,
+                            current: profile,
+                          ),
+                        ),
+                      );
+                      if (saved == true) _load();
+                    },
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Edit profile'),
                   ),
                   const SizedBox(width: 8),
                   TextButton.icon(

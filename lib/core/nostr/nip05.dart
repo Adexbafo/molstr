@@ -11,7 +11,8 @@ class Nip05Verifier {
   final _inFlight = <String, Future<bool>>{};
 
   Future<bool> verify(String identifier, String pubkeyHex) {
-    final key = '${identifier.trim().toLowerCase()}|${pubkeyHex.toLowerCase()}';
+    final key =
+        '${identifier.trim().toLowerCase()}|${pubkeyHex.toLowerCase()}';
     return _inFlight.putIfAbsent(
       key,
       () => _verify(key, identifier.trim(), pubkeyHex.toLowerCase()),
@@ -20,7 +21,7 @@ class Nip05Verifier {
 
   Future<bool> _verify(String key, String identifier, String pubkeyHex) async {
     final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getString('nip05.$key');
+    final cached = prefs.getString('nip05v2.$key');
 
     if (cached != null) {
       try {
@@ -39,11 +40,12 @@ class Nip05Verifier {
       final name = identifier.substring(0, at).toLowerCase();
       final domain = identifier.substring(at + 1).toLowerCase();
       try {
-        final uri =
-            Uri.https(domain, '/.well-known/nostr.json', {'name': name});
+        final uri = Uri.https(
+            domain, '/.well-known/nostr.json', {'name': name});
         final res = await http.get(uri).timeout(const Duration(seconds: 8));
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body);
+          // NIP-05 returns the mapping under "names".
           final names = body is Map ? body['names'] : null;
           final value = names is Map ? names[name] : null;
           if (value is String) {
@@ -54,7 +56,7 @@ class Nip05Verifier {
     }
 
     await prefs.setString(
-      'nip05.$key',
+      'nip05v2.$key',
       jsonEncode({'ok': ok, 'ts': DateTime.now().millisecondsSinceEpoch}),
     );
     return ok;

@@ -299,6 +299,7 @@ class _MolStrShellState extends State<MolStrShell> {
     }
     return ProfilePage(
       identity: identity,
+      identityService: _identityService,
       relayService: widget.relayService,
       relays: widget.relays,
       loadImages: widget.loadImages,

@@ -221,10 +221,10 @@ class RelayService {
     await Future.wait(
       relays.map((relayUrl) async {
         try {
-          final filter = <String, dynamic>{
-            'kinds': [1],
-            'limit': limit,
-          };
+            final filter = <String, dynamic>{
+              'kinds': [1, 1068],
+              'limit': limit,
+            };
           if (authors != null) {
             filter['authors'] = authors;
           }
