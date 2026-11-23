@@ -145,4 +145,29 @@ void main() {
     expect(details.likes.length, 1);
     expect(details.likes.single.pubkey, like.pubkey);
   });
+
+  test('parses zap receipt amount and sums zaps per note', () {
+    final target = signed('11', 1, 'Zapped note', 1700000000);
+    final zapReceipt = signed(
+      '99',
+      9735,
+      '',
+      1700000010,
+      tags: [
+        ['e', target.id],
+        ['p', target.pubkey],
+        ['amount', '21000'],
+      ],
+    );
+
+    final counts = tallyNoteEngagement(
+      noteIds: [target.id],
+      verifiedEvents: [zapReceipt],
+    );
+
+    expect(counts[target.id]!.zapSats, 21);
+    expect(formatSats(21), '21');
+    expect(formatSats(2500), '2.5k');
+    expect(formatSats(1200000), '1.2M');
+  });
 }

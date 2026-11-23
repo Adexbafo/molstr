@@ -14,6 +14,7 @@ class SettingsPage extends StatefulWidget {
     required this.onResetRelays,
     required this.loadImages,
     required this.onLoadImagesChanged,
+    this.onOpenTools,
   });
 
   final MolStrPreset preset;
@@ -26,6 +27,7 @@ class SettingsPage extends StatefulWidget {
   final Future<void> Function() onResetRelays;
   final bool loadImages;
   final Future<void> Function(bool) onLoadImagesChanged;
+  final VoidCallback? onOpenTools;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -139,6 +141,19 @@ class _SettingsPageState extends State<SettingsPage> {
         const Text(
           'Choose which Nostr relays MolStr contacts. Remote relays must use '
           'encrypted wss:// connections.',
+        ),
+        const Divider(height: 48),
+        Text('Diagnostics', style: textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.build_circle_outlined),
+            title: const Text('Tools & Storage Diagnostics'),
+            subtitle: const Text(
+                'Manage image/NIP-05 caches and test relay response speeds'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: widget.onOpenTools,
+          ),
         ),
         const SizedBox(height: 16),
         ConstrainedBox(

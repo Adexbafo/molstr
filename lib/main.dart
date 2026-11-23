@@ -13,6 +13,7 @@ import 'features/settings/settings_page.dart';
 import 'ui/theme/app_theme.dart';
 import 'features/composer/note_composer_page.dart';
 import 'core/nostr/interactions.dart';
+import 'features/tools/tools_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -187,6 +188,19 @@ class _MolStrShellState extends State<MolStrShell> {
     _loadIdentity();
   }
 
+  void _openTools() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ToolsPage(
+          identityService: _identityService,
+          relayService: widget.relayService,
+          relays: widget.relays,
+          preferences: widget.preferences,
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadIdentity() async {
     setState(() {
       _identityLoading = true;
@@ -342,6 +356,7 @@ class _MolStrShellState extends State<MolStrShell> {
           onAddRelay: widget.onAddRelay,
           onRemoveRelay: widget.onRemoveRelay,
           onResetRelays: widget.onResetRelays,
+          onOpenTools: _openTools,
         ),
       ],
     );

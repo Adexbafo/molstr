@@ -283,6 +283,10 @@ class _ThreadPageState extends State<ThreadPage> {
                           Tab(text: 'Likes (${likes.length})'),
                           Tab(text: 'Reposts (${reposts.length})'),
                           Tab(text: 'Quotes (${quotes.length})'),
+                          Tab(
+                            text:
+                                'Zaps (${data?.totalZapSats != null && data!.totalZapSats > 0 ? '${formatSats(data.totalZapSats)} sats' : '${data?.zaps.length ?? 0}'})',
+                          ),
                         ],
                       ),
                     ),
@@ -304,6 +308,10 @@ class _ThreadPageState extends State<ThreadPage> {
                       _buildNoteList(
                         quotes,
                         'No quote notes observed on your relays yet.',
+                      ),
+                      _buildUserList(
+                        data?.zaps ?? const <NostrEvent>[],
+                        'No zap receipts observed on your relays yet.',
                       ),
                     ],
                   ),

@@ -320,10 +320,16 @@ class _NoteActionBarState extends State<NoteActionBar> {
             color: liked ? accent : null,
             onTap: _busy ? null : _like,
           ),
-          IconButton(
-            tooltip: 'Zap with Bitcoin Lightning (public)',
-            icon: const Icon(Icons.bolt_outlined, size: 20),
-            onPressed: _busy ? null : _openZap,
+          _ActionCountButton(
+            tooltip: 'Zap with Bitcoin Lightning (observed on your relays)',
+            icon: Icons.bolt,
+            label: (engagement != null && engagement.zapSats > 0)
+                ? formatSats(engagement.zapSats)
+                : null,
+            color: (engagement != null && engagement.zapSats > 0)
+                ? Colors.amber
+                : null,
+            onTap: _busy ? null : _openZap,
           ),
           IconButton(
             tooltip: 'Tip with Monero (private)',
@@ -364,7 +370,8 @@ class _ActionCountButton extends StatelessWidget {
   const _ActionCountButton({
     required this.tooltip,
     required this.icon,
-    required this.count,
+    this.count,
+    this.label,
     required this.onTap,
     this.color,
   });
@@ -372,6 +379,7 @@ class _ActionCountButton extends StatelessWidget {
   final String tooltip;
   final IconData icon;
   final int? count;
+  final String? label;
   final VoidCallback? onTap;
   final Color? color;
 
@@ -390,9 +398,9 @@ class _ActionCountButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 18, color: color),
-              if (count != null) ...[
+              if (label != null || count != null) ...[
                 const SizedBox(width: 4),
-                Text('$count', style: textStyle),
+                Text(label ?? '$count', style: textStyle),
               ],
             ],
           ),

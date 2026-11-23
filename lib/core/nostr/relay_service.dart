@@ -407,7 +407,7 @@ class RelayService {
           relayUrl,
           [
             {
-              'kinds': [1, 6, 7],
+              'kinds': [1, 6, 7, 9735],
               '#e': ids,
               'limit': 300,
             },
@@ -461,7 +461,7 @@ class RelayService {
           relayUrl,
           [
             {
-              'kinds': [1, 6, 7],
+              'kinds': [1, 6, 7, 9735],
               '#e': [eventId],
               'limit': 200,
             },
