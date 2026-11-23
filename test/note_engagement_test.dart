@@ -103,4 +103,46 @@ void main() {
     // A nested reply references the root but directly replies to `reply`.
     expect(counts[reply.id]!.replies, 1);
   });
+
+  test('counts quote notes and groups interacting users', () {
+    final target = signed('11', 1, 'Original note', 1700000000);
+    final quote = signed(
+      '22',
+      1,
+      'Great point!',
+      1700000010,
+      tags: [
+        ['q', target.id, '', target.pubkey],
+        ['p', target.pubkey],
+      ],
+    );
+    final like = signed(
+      '33',
+      7,
+      '+',
+      1700000020,
+      tags: [
+        ['e', target.id],
+      ],
+    );
+
+    final counts = tallyNoteEngagement(
+      noteIds: [target.id],
+      verifiedEvents: [quote, like],
+    );
+    expect(counts[target.id]!.quotes, 1);
+    expect(counts[target.id]!.replies, 0);
+
+    final details = buildNoteInteractions(
+      targetId: target.id,
+      verifiedEvents: [quote, like],
+      profiles: const {},
+      eventRelays: const {},
+      connectedRelays: const ['wss://nos.lol'],
+      failedRelays: const [],
+    );
+    expect(details.quotes.length, 1);
+    expect(details.likes.length, 1);
+    expect(details.likes.single.pubkey, like.pubkey);
+  });
 }

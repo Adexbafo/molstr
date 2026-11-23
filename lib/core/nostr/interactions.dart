@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../text/hashtags.dart';
 import 'identity_service.dart';
+import 'nip19.dart';
 import 'nostr_event.dart';
 import 'relay_service.dart';
 
@@ -77,6 +78,26 @@ class Interactions {
     return ok;
   }
 
+  /// NIP-18 quote note: kind 1 with a `q` tag and `nostr:note1...` reference.
+  Future<int> quote(NostrEvent target, String commentary) async {
+    final trimmed = commentary.trim();
+    if (trimmed.isEmpty) {
+      throw const FormatException('Enter text for your quote note.');
+    }
+
+    final noteRef = Nip19.encodeKey('note', target.id);
+    final hint = relays.isNotEmpty ? relays.first : '';
+    final event = await identityService.signEvent(
+      kind: 1,
+      content: '$trimmed\n\nnostr:$noteRef',
+      tags: [
+        ...quoteTags(target, relayHint: hint),
+        ...Hashtags.extract(trimmed).map((t) => ['t', t]),
+      ],
+    );
+    return _publish(event);
+  }
+
   /// NIP-10 reply to a kind-1 note.
   Future<int> reply(NostrEvent parent, String content) async {
     final event = await identityService.signEvent(
@@ -88,6 +109,16 @@ class Interactions {
       ],
     );
     return _publish(event);
+  }
+
+  static List<List<String>> quoteTags(
+    NostrEvent target, {
+    String relayHint = '',
+  }) {
+    return [
+      ['q', target.id, relayHint, target.pubkey],
+      ['p', target.pubkey],
+    ];
   }
 
   /// Builds NIP-10 marked e/p tags for replying to [parent].

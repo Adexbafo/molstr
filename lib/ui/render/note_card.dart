@@ -1,3 +1,5 @@
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/nostr/nip19.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -106,6 +108,20 @@ class NoteCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             NoteText(content: event.content, loadImages: loadImages),
+            if (event.quotedEventId != null) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () {
+                  final noteId = Nip19.encodeKey('note', event.quotedEventId!);
+                  launchUrl(
+                    Uri.parse('https://njump.me/$noteId'),
+                    mode: LaunchMode.externalApplication,
+                  );
+                },
+                icon: const Icon(Icons.format_quote, size: 16),
+                label: const Text('Quoted note · Open on njump.me'),
+              ),
+            ],
             const SizedBox(height: 10),
             Row(
               children: [

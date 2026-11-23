@@ -43,6 +43,13 @@ class NostrEvent {
     return '';
   }
 
+  String? get quotedEventId {
+    for (final tag in tags) {
+      if (tag.length >= 2 && tag[0] == 'q') return tag[1];
+    }
+    return null;
+  }
+
   static String computeId({
     required String pubkey,
     required int createdAt,

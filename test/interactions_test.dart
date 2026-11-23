@@ -38,4 +38,20 @@ void main() {
     expect(tags, contains(equals(['e', root.id, '', 'root'])));
     expect(tags, contains(equals(['e', reply.id, '', 'reply'])));
   });
+
+  test('quote tags include NIP-18 q tag and author p tag', () {
+    final target = NostrEvent.sign(
+      privateKeyHex: key,
+      kind: 1,
+      content: 'Original note',
+      createdAt: 1700000000,
+    );
+
+    final tags = Interactions.quoteTags(target, relayHint: 'wss://nos.lol');
+    expect(
+      tags,
+      contains(equals(['q', target.id, 'wss://nos.lol', target.pubkey])),
+    );
+    expect(tags, contains(equals(['p', target.pubkey])));
+  });
 }

@@ -196,144 +196,6 @@ class RelayService {
     return '$scheme://$formattedHost$portPart$normalizedPath$queryPart';
   }
 
-  /// Fetches kind-1 replies that reference [eventId], oldest first.
-  Future<FeedResult> fetchThread(String eventId, List<String> relays) async {
-    final connected = <String>[];
-    final failed = <String>[];
-    final raw = <_RawEvent>[];
-
-    await Future.wait(relays.map((relayUrl) async {
-      try {
-        final events = await _queryRelay(
-          relayUrl,
-          {
-            'kinds': [1],
-            '#e': [eventId],
-            'limit': 100,
-          },
-          timeout: const Duration(seconds: 6),
-        ).timeout(const Duration(seconds: 12));
-        connected.add(relayUrl);
-        raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
-      } catch (error) {
-        failed.add(relayUrl);
-        debugPrint('MolStr: thread query on $relayUrl failed: $error');
-      }
-    }));
-
-    final verified = await compute(_verifyRawEvents, raw);
-    final byId = <String, NostrEvent>{};
-    final noteRelays = <String, Set<String>>{};
-    for (final item in verified) {
-      if (item.event.kind != 1) continue;
-      byId.putIfAbsent(item.event.id, () => item.event);
-      noteRelays.putIfAbsent(item.event.id, () => <String>{}).add(item.relay);
-    }
-
-    final replies = byId.values.toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-
-    final profiles = await _fetchProfiles(
-      connected,
-      replies.map((e) => e.pubkey).toSet().take(50).toList(),
-    );
-
-    debugPrint('MolStr: thread $eventId has ${replies.length} replies');
-
-    return FeedResult(
-      notes: replies,
-      profiles: profiles,
-      noteRelays: noteRelays,
-      connectedRelays: connected,
-      failedRelays: failed,
-    );
-  }
-
-  Future<Map<String, NoteEngagement>> fetchNoteEngagement(
-    Iterable<String> noteIds,
-    List<String> relays,
-  ) async {
-    // One batched request per relay, never one connection per note.
-    final ids = noteIds.toSet().take(60).toList();
-    if (ids.isEmpty || relays.isEmpty) return const {};
-
-    final raw = <_RawEvent>[];
-    var respondingRelays = 0;
-
-    await Future.wait(relays.map((relayUrl) async {
-      try {
-        final events = await _queryRelay(
-          relayUrl,
-          {
-            'kinds': [1, 6, 7],
-            '#e': ids,
-            'limit': 300,
-          },
-          timeout: const Duration(seconds: 5),
-        ).timeout(const Duration(seconds: 9));
-
-        raw.addAll(events.map((event) => _RawEvent(event, relayUrl)));
-        respondingRelays++;
-      } catch (error) {
-        debugPrint(
-          'MolStr: interaction query on $relayUrl failed: $error',
-        );
-      }
-    }));
-
-    // No response is unknown, not zero interactions.
-    if (respondingRelays == 0) return const {};
-
-    final verified = await compute(_verifyRawEvents, raw);
-    final counts = tallyNoteEngagement(
-      noteIds: ids,
-      verifiedEvents: verified.map((item) => item.event),
-    );
-
-    debugPrint(
-      'MolStr: counted ${verified.length} verified interaction deliveries '
-      'for ${ids.length} notes',
-    );
-
-    return counts;
-  }
-
-  Future<Map<String, ProfileMetadata>> _fetchProfiles(
-    List<String> relays,
-    List<String> authors,
-  ) async {
-    final profiles = <String, ProfileMetadata>{};
-    if (relays.isEmpty || authors.isEmpty) return profiles;
-
-    final raw = <_RawEvent>[];
-    await Future.wait(relays.map((relayUrl) async {
-      try {
-        final events = await _queryRelay(
-          relayUrl,
-          {
-            'kinds': [0],
-            'authors': authors,
-          },
-          timeout: const Duration(seconds: 4),
-        ).timeout(const Duration(seconds: 8));
-        raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
-      } catch (error) {
-        debugPrint('MolStr: profile query on $relayUrl failed: $error');
-      }
-    }));
-
-    final verified = await compute(_verifyRawEvents, raw);
-    for (final item in verified) {
-      final profile = ProfileMetadata.fromKind0(item.event);
-      if (profile == null) continue;
-      final existing = profiles[profile.pubkey];
-      if (existing == null || profile.createdAt > existing.createdAt) {
-        profiles[profile.pubkey] = profile;
-      }
-    }
-    return profiles;
-  }
-
   Future<FeedResult> fetchFeed(
     List<String> relays, {
     int limit = 20,
@@ -434,11 +296,235 @@ class RelayService {
     );
   }
 
-  /// Collects raw event JSON from one relay. No verification here;
-  /// that happens later in a background isolate.
+  /// Fetches the newest verified kind-0 profile for each author.
+  Future<Map<String, ProfileMetadata>> _fetchProfiles(
+    List<String> relays,
+    List<String> authors,
+  ) async {
+    final profiles = <String, ProfileMetadata>{};
+    if (relays.isEmpty || authors.isEmpty) return profiles;
+
+    final raw = <_RawEvent>[];
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelay(
+          relayUrl,
+          {
+            'kinds': [0],
+            'authors': authors,
+          },
+          timeout: const Duration(seconds: 4),
+        ).timeout(const Duration(seconds: 8));
+        raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
+      } catch (error) {
+        debugPrint('MolStr: profile query on $relayUrl failed: $error');
+      }
+    }));
+
+    final verified = await compute(_verifyRawEvents, raw);
+    for (final item in verified) {
+      final profile = ProfileMetadata.fromKind0(item.event);
+      if (profile == null) continue;
+      final existing = profiles[profile.pubkey];
+      if (existing == null || profile.createdAt > existing.createdAt) {
+        profiles[profile.pubkey] = profile;
+      }
+    }
+
+    debugPrint(
+      'MolStr: ${profiles.length} verified profiles from '
+      '${raw.length} raw for ${authors.length} authors',
+    );
+    return profiles;
+  }
+
+  /// Fetches kind-1 replies that reference [eventId], oldest first.
+  Future<FeedResult> fetchThread(String eventId, List<String> relays) async {
+    final connected = <String>[];
+    final failed = <String>[];
+    final raw = <_RawEvent>[];
+
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelay(
+          relayUrl,
+          {
+            'kinds': [1],
+            '#e': [eventId],
+            'limit': 100,
+          },
+          timeout: const Duration(seconds: 6),
+        ).timeout(const Duration(seconds: 12));
+        connected.add(relayUrl);
+        raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
+      } catch (error) {
+        failed.add(relayUrl);
+        debugPrint('MolStr: thread query on $relayUrl failed: $error');
+      }
+    }));
+
+    final verified = await compute(_verifyRawEvents, raw);
+    final byId = <String, NostrEvent>{};
+    final noteRelays = <String, Set<String>>{};
+    for (final item in verified) {
+      if (item.event.kind != 1) continue;
+      byId.putIfAbsent(item.event.id, () => item.event);
+      noteRelays.putIfAbsent(item.event.id, () => <String>{}).add(item.relay);
+    }
+
+    final replies = byId.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    final profiles = await _fetchProfiles(
+      connected,
+      replies.map((e) => e.pubkey).toSet().take(50).toList(),
+    );
+
+    debugPrint('MolStr: thread $eventId has ${replies.length} replies');
+
+    return FeedResult(
+      notes: replies,
+      profiles: profiles,
+      noteRelays: noteRelays,
+      connectedRelays: connected,
+      failedRelays: failed,
+    );
+  }
+
+  Future<Map<String, NoteEngagement>> fetchNoteEngagement(
+    Iterable<String> noteIds,
+    List<String> relays,
+  ) async {
+    final ids = noteIds.toSet().take(60).toList();
+    if (ids.isEmpty || relays.isEmpty) return const {};
+
+    final raw = <_RawEvent>[];
+    var respondingRelays = 0;
+
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelayFilters(
+          relayUrl,
+          [
+            {
+              'kinds': [1, 6, 7],
+              '#e': ids,
+              'limit': 300,
+            },
+            {
+              'kinds': [1],
+              '#q': ids,
+              'limit': 150,
+            },
+          ],
+          timeout: const Duration(seconds: 5),
+        ).timeout(const Duration(seconds: 9));
+
+        raw.addAll(events.map((event) => _RawEvent(event, relayUrl)));
+        respondingRelays++;
+      } catch (error) {
+        debugPrint(
+          'MolStr: interaction query on $relayUrl failed: $error',
+        );
+      }
+    }));
+
+    if (respondingRelays == 0) return const {};
+
+    final verified = await compute(_verifyRawEvents, raw);
+    final counts = tallyNoteEngagement(
+      noteIds: ids,
+      verifiedEvents: verified.map((item) => item.event),
+    );
+
+    debugPrint(
+      'MolStr: counted ${verified.length} verified interaction deliveries '
+      'for ${ids.length} notes',
+    );
+
+    return counts;
+  }
+
+  /// Fetches verified replies, likes, reposts, quotes, and author profiles
+  /// for a single note [eventId].
+  Future<NoteInteractions> fetchNoteInteractions(
+    String eventId,
+    List<String> relays,
+  ) async {
+    final connected = <String>[];
+    final failed = <String>[];
+    final raw = <_RawEvent>[];
+
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelayFilters(
+          relayUrl,
+          [
+            {
+              'kinds': [1, 6, 7],
+              '#e': [eventId],
+              'limit': 200,
+            },
+            {
+              'kinds': [1],
+              '#q': [eventId],
+              'limit': 100,
+            },
+          ],
+          timeout: const Duration(seconds: 6),
+        ).timeout(const Duration(seconds: 12));
+        connected.add(relayUrl);
+        raw.addAll(events.map((event) => _RawEvent(event, relayUrl)));
+      } catch (error) {
+        failed.add(relayUrl);
+        debugPrint('MolStr: interactions query on $relayUrl failed: $error');
+      }
+    }));
+
+    final verified = await compute(_verifyRawEvents, raw);
+    final eventRelays = <String, Set<String>>{};
+    final pubkeys = <String>{};
+
+    for (final item in verified) {
+      eventRelays.putIfAbsent(item.event.id, () => <String>{}).add(item.relay);
+      pubkeys.add(item.event.pubkey);
+    }
+
+    final profiles = await _fetchProfiles(
+      connected,
+      pubkeys.take(60).toList(),
+    );
+
+    final result = buildNoteInteractions(
+      targetId: eventId,
+      verifiedEvents: verified.map((item) => item.event),
+      profiles: profiles,
+      eventRelays: eventRelays,
+      connectedRelays: connected,
+      failedRelays: failed,
+    );
+
+    debugPrint(
+      'MolStr: note $eventId interactions -> '
+      '${result.replies.length} replies, ${result.likes.length} likes, '
+      '${result.reposts.length} reposts, ${result.quotes.length} quotes',
+    );
+
+    return result;
+  }
+
   Future<List<Map<String, dynamic>>> _queryRelay(
     String relayUrl,
     Map<String, dynamic> filter, {
+    required Duration timeout,
+  }) {
+    return _queryRelayFilters(relayUrl, [filter], timeout: timeout);
+  }
+
+  /// Collects raw event JSON from one relay for one or more NIP-01 filters.
+  Future<List<Map<String, dynamic>>> _queryRelayFilters(
+    String relayUrl,
+    List<Map<String, dynamic>> filters, {
     required Duration timeout,
   }) async {
     final channel = WebSocketChannel.connect(Uri.parse(relayUrl));
@@ -479,7 +565,7 @@ class RelayService {
         onDone: finish,
       );
 
-      channel.sink.add(jsonEncode(['REQ', subId, filter]));
+      channel.sink.add(jsonEncode(['REQ', subId, ...filters]));
 
       await done.future.timeout(timeout, onTimeout: () {});
 
@@ -487,7 +573,6 @@ class RelayService {
         channel.sink.add(jsonEncode(['CLOSE', subId]));
       } catch (_) {}
     } finally {
-      // Never await socket teardown: a hanging close must not stall the feed.
       unawaited(subscription?.cancel());
       unawaited(channel.sink.close().catchError((_) {}));
     }
