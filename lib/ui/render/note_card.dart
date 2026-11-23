@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/nostr/nostr_event.dart';
 import '../widgets/molstr_avatar.dart';
 import '../widgets/nip05_badge.dart';
+import 'note_actions.dart';
 import 'note_text.dart';
 
 String formatTimestamp(int unixSeconds) {
@@ -34,12 +35,14 @@ class NoteCard extends StatelessWidget {
     required this.profile,
     required this.provenance,
     required this.loadImages,
+    this.inThread = false,
   });
 
   final NostrEvent event;
   final ProfileMetadata? profile;
   final String provenance;
   final bool loadImages;
+  final bool inThread;
 
   Future<void> _copy(BuildContext context, String text, String label) async {
     await Clipboard.setData(ClipboardData(text: text));
@@ -87,8 +90,10 @@ class NoteCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Text(formatTimestamp(event.createdAt),
-                    style: textTheme.bodySmall),
+                Text(
+                  formatTimestamp(event.createdAt),
+                  style: textTheme.bodySmall,
+                ),
                 IconButton(
                   tooltip: 'Copy author npub',
                   onPressed: () => _copy(context, npub, 'Author npub copied.'),
@@ -103,14 +108,23 @@ class NoteCard extends StatelessWidget {
               children: [
                 const Icon(Icons.verified_user_outlined, size: 12),
                 const SizedBox(width: 4),
-                const Text('signature verified',
-                    style: TextStyle(fontSize: 11)),
+                const Text(
+                  'signature verified',
+                  style: TextStyle(fontSize: 11),
+                ),
                 if (provenance.isNotEmpty) ...[
                   const SizedBox(width: 12),
                   Text(provenance, style: textTheme.bodySmall),
                 ],
               ],
             ),
+            if (event.kind == 1)
+              NoteActionBar(
+                event: event,
+                profile: profile,
+                loadImages: loadImages,
+                inThread: inThread,
+              ),
           ],
         ),
       ),

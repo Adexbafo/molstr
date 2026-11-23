@@ -12,6 +12,7 @@ import 'features/profile/profile_page.dart';
 import 'features/settings/settings_page.dart';
 import 'ui/theme/app_theme.dart';
 import 'features/composer/note_composer_page.dart';
+import 'core/nostr/interactions.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -115,6 +116,7 @@ class _MolStrAppState extends State<MolStrApp> {
           onAddRelay: _addRelay,
           onRemoveRelay: _removeRelay,
           onResetRelays: _resetRelays,
+          preferences: widget.preferences,
         ),
       );
 }
@@ -133,6 +135,7 @@ class MolStrShell extends StatefulWidget {
     required this.onAddRelay,
     required this.onRemoveRelay,
     required this.onResetRelays,
+    required this.preferences,
   });
 
   final MolStrPreset preset;
@@ -146,6 +149,7 @@ class MolStrShell extends StatefulWidget {
   final Future<void> Function(String url) onAddRelay;
   final Future<void> Function(String url) onRemoveRelay;
   final Future<void> Function() onResetRelays;
+  final SharedPreferences preferences;
 
   @override
   State<MolStrShell> createState() => _MolStrShellState();
@@ -342,66 +346,77 @@ class _MolStrShellState extends State<MolStrShell> {
       ],
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            SvgPicture.asset('assets/logo/molstr_icon.svg',
-                width: 32, height: 32, semanticsLabel: 'MolStr logo'),
-            const SizedBox(width: 12),
-            Text('MolStr · ${_labels[_index]}'),
+    final interactions = Interactions(
+      identityService: _identityService,
+      relayService: widget.relayService,
+      relays: widget.relays,
+      preferences: widget.preferences,
+      canSign: _identity != null,
+    );
+
+    return InteractionsScope(
+      interactions: interactions,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Row(
+            children: [
+              SvgPicture.asset('assets/logo/molstr_icon.svg',
+                  width: 32, height: 32, semanticsLabel: 'MolStr logo'),
+              const SizedBox(width: 12),
+              Text('MolStr · ${_labels[_index]}'),
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Support MolStr',
+              onPressed: _openSupport,
+              icon: const Icon(Icons.favorite_outline),
+            ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Support MolStr',
-            onPressed: _openSupport,
-            icon: const Icon(Icons.favorite_outline),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: wide
-            ? Row(
-                children: [
-                  NavigationRail(
-                    selectedIndex: _index,
-                    labelType: NavigationRailLabelType.all,
-                    onDestinationSelected: (i) => setState(() => _index = i),
-                    destinations: [
-                      for (var i = 0; i < _labels.length; i++)
-                        NavigationRailDestination(
-                            icon: Icon(_icons[i]), label: Text(_labels[i])),
-                    ],
-                  ),
-                  const VerticalDivider(width: 1),
-                  Expanded(child: pages),
+        body: SafeArea(
+          child: wide
+              ? Row(
+                  children: [
+                    NavigationRail(
+                      selectedIndex: _index,
+                      labelType: NavigationRailLabelType.all,
+                      onDestinationSelected: (i) => setState(() => _index = i),
+                      destinations: [
+                        for (var i = 0; i < _labels.length; i++)
+                          NavigationRailDestination(
+                              icon: Icon(_icons[i]), label: Text(_labels[i])),
+                      ],
+                    ),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: pages),
+                  ],
+                )
+              : pages,
+        ),
+        bottomNavigationBar: wide
+            ? null
+            : BottomNavigationBar(
+                type: BottomNavigationBarType.fixed,
+                currentIndex: _index,
+                selectedFontSize: 10,
+                unselectedFontSize: 10,
+                onTap: (i) => setState(() => _index = i),
+                items: [
+                  for (var i = 0; i < _labels.length; i++)
+                    BottomNavigationBarItem(
+                        icon: Icon(_icons[i]),
+                        label: i == 2 ? 'Alerts' : _labels[i]),
                 ],
+              ),
+        floatingActionButton: _index == 0
+            ? FloatingActionButton(
+                tooltip: 'Create note',
+                onPressed: _openComposer,
+                child: const Icon(Icons.add),
               )
-            : pages,
+            : null,
       ),
-      bottomNavigationBar: wide
-          ? null
-          : BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              currentIndex: _index,
-              selectedFontSize: 10,
-              unselectedFontSize: 10,
-              onTap: (i) => setState(() => _index = i),
-              items: [
-                for (var i = 0; i < _labels.length; i++)
-                  BottomNavigationBarItem(
-                      icon: Icon(_icons[i]),
-                      label: i == 2 ? 'Alerts' : _labels[i]),
-              ],
-            ),
-      floatingActionButton: _index == 0
-          ? FloatingActionButton(
-              tooltip: 'Create note',
-              onPressed: _openComposer,
-              child: const Icon(Icons.add),
-            )
-          : null,
     );
   }
 }

@@ -9,6 +9,7 @@ import '../../ui/widgets/nip05_badge.dart';
 import 'profile_editor_page.dart';
 import '../../core/nostr/nostr_event.dart';
 import '../../ui/render/poll_card.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -277,12 +278,23 @@ class _ProfilePageState extends State<ProfilePage>
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   OutlinedButton.icon(
                     onPressed: widget.onOpenSupport,
                     icon: const Icon(Icons.favorite_outline),
                     label: const Text('Support MolStr'),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => launchUrl(
+                      Uri.parse('https://njump.me/${widget.identity.npub}'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('View on njump'),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
