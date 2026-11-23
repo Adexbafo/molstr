@@ -5,6 +5,9 @@ import '../../core/nostr/interactions.dart';
 import '../../core/nostr/nip19.dart';
 import '../../core/nostr/nostr_event.dart';
 import '../../core/nostr/note_engagement.dart';
+import '../../core/payments/monero.dart';
+import '../payments/monero_sheet.dart';
+import '../payments/zap_sheet.dart';
 import 'thread_page.dart';
 
 class NoteActionBar extends StatefulWidget {
@@ -42,6 +45,14 @@ class _NoteActionBarState extends State<NoteActionBar> {
       _likeDelta = 0;
       _repostDelta = 0;
     }
+  }
+
+  String _recipientName() {
+    final best = widget.profile?.bestName;
+    if (best != null && best.isNotEmpty) return best;
+    final npub = widget.event.authorNpub;
+    if (npub.length <= 20) return npub;
+    return '${npub.substring(0, 12)}…${npub.substring(npub.length - 6)}';
   }
 
   void _message(String text) {
@@ -82,9 +93,7 @@ class _NoteActionBarState extends State<NoteActionBar> {
       return;
     }
     final ok = await _run((i) => i.like(widget.event), 'Liked');
-    if (ok && mounted) {
-      setState(() => _likeDelta++);
-    }
+    if (ok && mounted) setState(() => _likeDelta++);
   }
 
   Future<void> _openRepostOrQuote() async {
@@ -94,7 +103,6 @@ class _NoteActionBarState extends State<NoteActionBar> {
       return;
     }
     final alreadyReposted = interactions.isReposted(widget.event.id);
-
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
@@ -104,27 +112,21 @@ class _NoteActionBarState extends State<NoteActionBar> {
             ListTile(
               leading: const Icon(Icons.repeat),
               title: Text(alreadyReposted ? 'Already reposted' : 'Repost'),
-              subtitle: const Text(
-                'Share this note directly to your relays (kind 6)',
-              ),
+              subtitle: const Text('Share directly (kind 6)'),
               enabled: !alreadyReposted,
               onTap: () => Navigator.of(context).pop('repost'),
             ),
             ListTile(
               leading: const Icon(Icons.format_quote),
               title: const Text('Quote note'),
-              subtitle: const Text(
-                'Write a public note quoting this post (NIP-18)',
-              ),
+              subtitle: const Text('Public note quoting this post (NIP-18)'),
               onTap: () => Navigator.of(context).pop('quote'),
             ),
           ],
         ),
       ),
     );
-
     if (!mounted || choice == null) return;
-
     if (choice == 'repost') {
       await _confirmAndRepost();
     } else if (choice == 'quote') {
@@ -154,9 +156,7 @@ class _NoteActionBarState extends State<NoteActionBar> {
     );
     if (confirmed == true) {
       final ok = await _run((i) => i.repost(widget.event), 'Reposted');
-      if (ok && mounted) {
-        setState(() => _repostDelta++);
-      }
+      if (ok && mounted) setState(() => _repostDelta++);
     }
   }
 
@@ -165,8 +165,6 @@ class _NoteActionBarState extends State<NoteActionBar> {
     final preview = widget.event.content.length > 140
         ? '${widget.event.content.substring(0, 140)}…'
         : widget.event.content;
-    final author = widget.profile?.bestName ?? widget.event.authorNpub;
-
     final commentary = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -188,28 +186,7 @@ class _NoteActionBarState extends State<NoteActionBar> {
                 ),
               ),
               const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        author,
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        preview,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              Text(preview, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
         ),
@@ -226,15 +203,9 @@ class _NoteActionBarState extends State<NoteActionBar> {
       ),
     );
     controller.dispose();
-
     if (commentary == null || commentary.isEmpty || !mounted) return;
-    final ok = await _run(
-      (i) => i.quote(widget.event, commentary),
-      'Quoted',
-    );
-    if (ok && mounted) {
-      setState(() => _repostDelta++);
-    }
+    final ok = await _run((i) => i.quote(widget.event, commentary), 'Quoted');
+    if (ok && mounted) setState(() => _repostDelta++);
   }
 
   void _openThread() {
@@ -248,12 +219,53 @@ class _NoteActionBarState extends State<NoteActionBar> {
           interactions: interactions,
           loadImages: widget.loadImages,
           onReplySent: () {
-            if (mounted) {
-              setState(() => _replyDelta++);
-            }
+            if (mounted) setState(() => _replyDelta++);
           },
         ),
       ),
+    );
+  }
+
+  Future<void> _openZap() async {
+    final interactions = InteractionsScope.of(context);
+    if (interactions == null || !interactions.canSign) {
+      _message('Connect a key in Profile to zap.');
+      return;
+    }
+    final lud16 = widget.profile?.lud16;
+    if (lud16 == null || lud16.trim().isEmpty) {
+      _message('Author has no Lightning address.');
+      return;
+    }
+    await showZapSheet(
+      context: context,
+      recipientName: _recipientName(),
+      recipientLud16: lud16.trim(),
+      recipientPubkeyHex: widget.event.pubkey,
+      noteEvent: widget.event.kind == 1 ? widget.event : null,
+      relays: interactions.relays,
+      identityService: interactions.identityService,
+    );
+  }
+
+  Future<void> _openMoneroTip() async {
+    final address = widget.profile?.moneroAddress;
+    if (address == null || address.trim().isEmpty) {
+      _message('Author has no Monero address.');
+      return;
+    }
+    if (!isValidMoneroAddress(address)) {
+      _message('Author Monero address looks invalid.');
+      return;
+    }
+    final content = widget.event.content;
+    final preview =
+        content.length > 120 ? '${content.substring(0, 120)}…' : content;
+    await showMoneroSheet(
+      context: context,
+      recipientName: _recipientName(),
+      moneroAddress: address.trim(),
+      notePreview: preview,
     );
   }
 
@@ -282,57 +294,68 @@ class _NoteActionBarState extends State<NoteActionBar> {
         ? engagement.likes + _likeDelta
         : (_likeDelta > 0 ? _likeDelta : null);
 
-    return Row(
-      children: [
-        if (!widget.inThread)
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!widget.inThread)
+            _ActionCountButton(
+              tooltip: 'Replies & interactions (observed on your relays)',
+              icon: Icons.chat_bubble_outline,
+              count: replyCount,
+              onTap: _openThread,
+            ),
           _ActionCountButton(
-            tooltip: 'Replies & interactions (observed on your relays)',
-            icon: Icons.chat_bubble_outline,
-            count: replyCount,
-            onTap: _openThread,
+            tooltip: 'Repost or quote (observed on your relays)',
+            icon: Icons.repeat,
+            count: repostCount,
+            color: reposted ? accent : null,
+            onTap: _busy ? null : _openRepostOrQuote,
           ),
-        _ActionCountButton(
-          tooltip: 'Repost or quote (observed on your relays)',
-          icon: Icons.repeat,
-          count: repostCount,
-          color: reposted ? accent : null,
-          onTap: _busy ? null : _openRepostOrQuote,
-        ),
-        _ActionCountButton(
-          tooltip: liked
-              ? 'Liked (observed on your relays)'
-              : 'Like (observed on your relays)',
-          icon: liked ? Icons.favorite : Icons.favorite_border,
-          count: likeCount,
-          color: liked ? accent : null,
-          onTap: _busy ? null : _like,
-        ),
-        if (_busy)
-          const Padding(
-            padding: EdgeInsets.only(left: 6),
-            child: SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
+          _ActionCountButton(
+            tooltip: 'Like (observed on your relays)',
+            icon: liked ? Icons.favorite : Icons.favorite_border,
+            count: likeCount,
+            color: liked ? accent : null,
+            onTap: _busy ? null : _like,
           ),
-        const Spacer(),
-        PopupMenuButton<String>(
-          tooltip: 'Open on njump.me',
-          icon: const Icon(Icons.open_in_new, size: 18),
-          onSelected: _openNjump,
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              value: Nip19.encodeKey('note', widget.event.id),
-              child: const Text('Open note on njump.me'),
+          IconButton(
+            tooltip: 'Zap with Bitcoin Lightning (public)',
+            icon: const Icon(Icons.bolt_outlined, size: 20),
+            onPressed: _busy ? null : _openZap,
+          ),
+          IconButton(
+            tooltip: 'Tip with Monero (private)',
+            icon: const Icon(Icons.shield_outlined, size: 20),
+            onPressed: _openMoneroTip,
+          ),
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(left: 6),
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             ),
-            PopupMenuItem(
-              value: widget.event.authorNpub,
-              child: const Text('Open author profile on njump.me'),
-            ),
-          ],
-        ),
-      ],
+          PopupMenuButton<String>(
+            tooltip: 'Open on njump.me',
+            icon: const Icon(Icons.open_in_new, size: 18),
+            onSelected: _openNjump,
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: Nip19.encodeKey('note', widget.event.id),
+                child: const Text('Open note on njump.me'),
+              ),
+              PopupMenuItem(
+                value: widget.event.authorNpub,
+                child: const Text('Open author profile on njump.me'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -356,7 +379,6 @@ class _ActionCountButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final textStyle =
         Theme.of(context).textTheme.bodySmall?.copyWith(color: color);
-
     return Tooltip(
       message: tooltip,
       child: InkWell(

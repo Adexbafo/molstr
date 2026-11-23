@@ -198,6 +198,7 @@ class ProfileMetadata {
     this.about,
     this.nip05,
     this.lud16,
+    this.lud06,
     this.moneroAddress,
     this.picture,
     this.banner,
@@ -210,6 +211,7 @@ class ProfileMetadata {
   final String? about;
   final String? nip05;
   final String? lud16;
+  final String? lud06;
   final String? moneroAddress;
   final String? picture;
   final String? banner;
@@ -242,6 +244,7 @@ class ProfileMetadata {
           about: readField('about'),
           nip05: readField('nip05'),
           lud16: readField('lud16'),
+          lud06: readField('lud06'),
           moneroAddress: readField('monero_address'),
           picture: readField('picture'),
           banner: readField('banner'));
