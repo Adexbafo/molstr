@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../core/nostr/nostr_event.dart';
 import '../../core/nostr/relay_service.dart';
+import '../../ui/render/article_card.dart';
 import '../../ui/render/note_card.dart';
 import '../../ui/render/poll_card.dart';
-import '../../ui/render/article_card.dart';
-import '../../core/nostr/nostr_event.dart';
 
 class HomeFeedPage extends StatefulWidget {
   const HomeFeedPage({
@@ -15,11 +15,11 @@ class HomeFeedPage extends StatefulWidget {
     required this.loadImages,
     this.refreshToken = 0,
   });
-  final bool loadImages;
 
   final List<String> relays;
   final RelayService relayService;
   final VoidCallback onOpenRelaySettings;
+  final bool loadImages;
   final int refreshToken;
 
   @override
@@ -29,9 +29,27 @@ class HomeFeedPage extends StatefulWidget {
 class _HomeFeedPageState extends State<HomeFeedPage> {
   FeedResult? _result;
   bool _loading = false;
-  int _lastRefreshToken = 0;
   bool _hideReplies = true;
+  bool _namedOnly = false;
   String _status = '';
+  int _lastRefreshToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastRefreshToken = widget.refreshToken;
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeFeedPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshToken != _lastRefreshToken &&
+        _result != null &&
+        !_loading) {
+      _lastRefreshToken = widget.refreshToken;
+      _loadFeed();
+    }
+  }
 
   Future<void> _loadFeed() async {
     if (widget.relays.isEmpty) return;
@@ -52,82 +70,97 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
     setState(() {
       _result = result;
       _loading = false;
-      _lastRefreshToken = widget.refreshToken;
     });
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _lastRefreshToken = widget.refreshToken;
-  }
+  bool _passesNameFilter(FeedResult result, String pubkey) =>
+      !_namedOnly || result.profiles.containsKey(pubkey);
 
-  @override
-  void didUpdateWidget(covariant HomeFeedPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.refreshToken != _lastRefreshToken &&
-        _result != null &&
-        !_loading) {
-      _lastRefreshToken = widget.refreshToken;
-      _loadFeed();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    if (_result == null && !_loading) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            shrinkWrap: true,
-            children: [
-              Text(
-                'Connect to your relays',
-                style: textTheme.headlineSmall,
-                textAlign: TextAlign.center,
+  Widget _connectPrompt(TextTheme textTheme) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          shrinkWrap: true,
+          children: [
+            Text(
+              'Connect to your relays',
+              style: textTheme.headlineSmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'MolStr does not connect automatically on startup. '
+              'Loading the feed contacts only the relays listed below '
+              'and cryptographically verifies every note.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: widget.relays.isEmpty
+                    ? const Text(
+                        'No relays configured. Add at least one wss:// '
+                        'relay in Settings.',
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Configured relays (${widget.relays.length})',
+                            style: textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          for (final relay in widget.relays)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Text(relay),
+                            ),
+                        ],
+                      ),
               ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: widget.relays.isEmpty ? null : _loadFeed,
+              icon: const Icon(Icons.sync),
+              label: const Text('Connect & load recent notes'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: widget.onOpenRelaySettings,
+              icon: const Icon(Icons.tune),
+              label: const Text('Manage relays'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _connectionFailed() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off_outlined, size: 56),
               const SizedBox(height: 12),
               const Text(
-                'MolStr does not connect automatically on startup. '
-                'Loading the feed contacts only the relays listed below '
-                'and cryptographically verifies every note.',
+                'Could not connect to any configured relay. '
+                'Check your internet connection or relay URLs.',
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 20),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: widget.relays.isEmpty
-                      ? const Text(
-                          'No relays configured. Add at least one wss:// relay in Settings.',
-                        )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Configured relays (${widget.relays.length})',
-                              style: textTheme.titleSmall,
-                            ),
-                            const SizedBox(height: 8),
-                            for (final relay in widget.relays)
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 2),
-                                child: Text(relay),
-                              ),
-                          ],
-                        ),
-                ),
-              ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: widget.relays.isEmpty ? null : _loadFeed,
-                icon: const Icon(Icons.sync),
-                label: const Text('Connect & load recent notes'),
+                onPressed: _loading ? null : _loadFeed,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -138,7 +171,16 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    if (_result == null && !_loading) {
+      return _connectPrompt(textTheme);
     }
 
     if (_loading && _result == null) {
@@ -156,56 +198,31 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
 
     final result = _result!;
     if (result.connectedRelays.isEmpty) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.cloud_off_outlined, size: 56),
-                const SizedBox(height: 12),
-                const Text(
-                  'Could not connect to any configured relay. '
-                  'Check your internet connection or relay URLs.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: _loading ? null : _loadFeed,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: widget.onOpenRelaySettings,
-                  icon: const Icon(Icons.tune),
-                  label: const Text('Manage relays'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+      return _connectionFailed();
     }
 
-    final visibleNotes = _hideReplies
-        ? result.notes.where((note) => !note.isReply).toList()
-        : result.notes;
+    final visibleNotes = result.notes.where((note) {
+      if (_hideReplies && note.isReply) return false;
+      return _passesNameFilter(result, note.pubkey);
+    }).toList();
 
-    final parsedPolls =
-        result.polls.map(PollData.fromEvent).whereType<PollData>().toList();
+    final parsedPolls = result.polls
+        .map(PollData.fromEvent)
+        .whereType<PollData>()
+        .where((poll) => _passesNameFilter(result, poll.event.pubkey))
+        .toList();
+
     final parsedArticles = result.articles
         .map(ArticleData.fromEvent)
         .whereType<ArticleData>()
+        .where((a) => _passesNameFilter(result, a.event.pubkey))
         .toList();
 
     // (timestamp, card) pairs, newest first.
-    final feedItems = <(DateTime, Widget)>[
+    final feedItems = <(int, Widget)>[
       for (final note in visibleNotes)
         (
-          DateTime.fromMillisecondsSinceEpoch(note.createdAt * 1000),
+          note.createdAt,
           NoteCard(
             event: note,
             profile: result.profiles[note.pubkey],
@@ -215,7 +232,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
         ),
       for (final poll in parsedPolls)
         (
-          DateTime.fromMillisecondsSinceEpoch(poll.event.createdAt * 1000),
+          poll.event.createdAt,
           PollCard(
             poll: poll,
             profile: result.profiles[poll.event.pubkey],
@@ -225,7 +242,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
         ),
       for (final article in parsedArticles)
         (
-          DateTime.fromMillisecondsSinceEpoch(article.event.createdAt * 1000),
+          article.event.createdAt,
           ArticleCard(
             article: article,
             profile: result.profiles[article.event.pubkey],
@@ -245,8 +262,8 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(
-                '${result.connectedRelays.length}/${widget.relays.length} relays connected'
-                ' · ${feedItems.length} items',
+                '${result.connectedRelays.length}/${widget.relays.length} '
+                'relays connected · ${feedItems.length} items',
                 style: textTheme.bodySmall,
               ),
               FilterChip(
@@ -254,6 +271,13 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
                 selected: _hideReplies,
                 onSelected: (selected) {
                   setState(() => _hideReplies = selected);
+                },
+              ),
+              FilterChip(
+                label: const Text('Named authors only'),
+                selected: _namedOnly,
+                onSelected: (selected) {
+                  setState(() => _namedOnly = selected);
                 },
               ),
               TextButton.icon(

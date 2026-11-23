@@ -283,9 +283,11 @@ class RelayService {
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     debugPrint(
-      'MolStr: ${notes.length} verified notes from ${rawNotes.length} raw',
+      'MolStr: ${notes.length} notes, ${polls.length} polls, '
+      '${articles.length} articles from ${rawNotes.length} raw',
     );
 
+    // Authors are computed AFTER notes exist, then used for the kind-0 query.
     final profileAuthors = authors != null
         ? authors.toSet().toList()
         : <String>{
@@ -293,47 +295,9 @@ class RelayService {
             ...polls.map((p) => p.pubkey),
             ...articles.map((a) => a.pubkey),
           }.take(50).toList();
-    final profiles = <String, ProfileMetadata>{};
 
-    if (connectedRelays.isNotEmpty && profileAuthors.isNotEmpty) {
-      onStatus?.call('Loading ${profileAuthors.length} author profiles...');
-      final rawProfiles = <_RawEvent>[];
-
-      await Future.wait(
-        connectedRelays.map((relayUrl) async {
-          try {
-            final events = await _queryRelay(
-              relayUrl,
-              {
-                'kinds': [0],
-                'authors': authors,
-              },
-              timeout: const Duration(seconds: 4),
-            ).timeout(const Duration(seconds: 8));
-            rawProfiles.addAll(events.map((e) => _RawEvent(e, relayUrl)));
-          } catch (error) {
-            debugPrint('MolStr: profile query on $relayUrl failed: $error');
-          }
-        }),
-      );
-
-      onStatus?.call('Verifying ${rawProfiles.length} profiles...');
-      final verifiedProfiles = await compute(_verifyRawEvents, rawProfiles);
-
-      for (final item in verifiedProfiles) {
-        final profile = ProfileMetadata.fromKind0(item.event);
-        if (profile == null) continue;
-        final existing = profiles[profile.pubkey];
-        if (existing == null || profile.createdAt > existing.createdAt) {
-          profiles[profile.pubkey] = profile;
-        }
-      }
-
-      debugPrint(
-        'MolStr: ${profiles.length} verified profiles from '
-        '${rawProfiles.length} raw for ${profileAuthors.length} authors',
-      );
-    }
+    onStatus?.call('Loading ${profileAuthors.length} author profiles...');
+    final profiles = await _fetchProfiles(connectedRelays, profileAuthors);
 
     return FeedResult(
       notes: notes,
@@ -344,6 +308,48 @@ class RelayService {
       connectedRelays: connectedRelays,
       failedRelays: failedRelays,
     );
+  }
+
+  /// Fetches the newest verified kind-0 profile for each author.
+  Future<Map<String, ProfileMetadata>> _fetchProfiles(
+    List<String> relays,
+    List<String> authors,
+  ) async {
+    final profiles = <String, ProfileMetadata>{};
+    if (relays.isEmpty || authors.isEmpty) return profiles;
+
+    final raw = <_RawEvent>[];
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelay(
+          relayUrl,
+          {
+            'kinds': [0],
+            'authors': authors,
+          },
+          timeout: const Duration(seconds: 4),
+        ).timeout(const Duration(seconds: 8));
+        raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
+      } catch (error) {
+        debugPrint('MolStr: profile query on $relayUrl failed: $error');
+      }
+    }));
+
+    final verified = await compute(_verifyRawEvents, raw);
+    for (final item in verified) {
+      final profile = ProfileMetadata.fromKind0(item.event);
+      if (profile == null) continue;
+      final existing = profiles[profile.pubkey];
+      if (existing == null || profile.createdAt > existing.createdAt) {
+        profiles[profile.pubkey] = profile;
+      }
+    }
+
+    debugPrint(
+      'MolStr: ${profiles.length} verified profiles from '
+      '${raw.length} raw for ${authors.length} authors',
+    );
+    return profiles;
   }
 
   /// Collects raw event JSON from one relay. No verification here;

@@ -8,6 +8,8 @@ class Nip05Verifier {
   Nip05Verifier._();
   static final Nip05Verifier instance = Nip05Verifier._();
 
+  static const cachePrefix = 'nip05v3.';
+
   final _inFlight = <String, Future<bool>>{};
 
   Future<bool> verify(String identifier, String pubkeyHex) {
@@ -20,7 +22,7 @@ class Nip05Verifier {
 
   Future<bool> _verify(String key, String identifier, String pubkeyHex) async {
     final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getString('nip05v2.$key');
+    final cached = prefs.getString('$cachePrefix$key');
 
     if (cached != null) {
       try {
@@ -44,18 +46,25 @@ class Nip05Verifier {
         final res = await http.get(uri).timeout(const Duration(seconds: 8));
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body);
-          // NIP-05 returns the mapping under "names".
           final names = body is Map ? body['names'] : null;
-          final value = names is Map ? names[name] : null;
-          if (value is String) {
-            ok = value.toLowerCase() == pubkeyHex;
+          if (names is Map) {
+            for (final entry in names.entries) {
+              final entryName = entry.key;
+              final value = entry.value;
+              if (entryName is String &&
+                  entryName.toLowerCase() == name &&
+                  value is String) {
+                ok = value.toLowerCase() == pubkeyHex;
+                break;
+              }
+            }
           }
         }
       } catch (_) {}
     }
 
     await prefs.setString(
-      'nip05v2.$key',
+      '$cachePrefix$key',
       jsonEncode({'ok': ok, 'ts': DateTime.now().millisecondsSinceEpoch}),
     );
     return ok;
