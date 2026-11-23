@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/nostr/interactions.dart';
 import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/note_engagement.dart';
 import '../../core/nostr/relay_service.dart';
 import 'note_card.dart';
 
@@ -26,6 +29,8 @@ class ThreadPage extends StatefulWidget {
 class _ThreadPageState extends State<ThreadPage> {
   final _controller = TextEditingController();
   FeedResult? _result;
+  Map<String, NoteEngagement> _engagement = const {};
+  int _engagementGeneration = 0;
   bool _loading = true;
   bool _sending = false;
 
@@ -53,8 +58,26 @@ class _ThreadPageState extends State<ThreadPage> {
     if (!mounted) return;
     setState(() {
       _result = result;
+      _engagement = const {};
       _loading = false;
     });
+    unawaited(_loadEngagement(result));
+  }
+
+  Future<void> _loadEngagement(FeedResult result) async {
+    final generation = ++_engagementGeneration;
+    final relays = result.connectedRelays.isNotEmpty
+        ? result.connectedRelays
+        : widget.interactions.relays;
+    final noteIds = <String>[
+      widget.parent.id,
+      ...result.notes.map((reply) => reply.id),
+    ];
+
+    final counts = await widget.interactions.relayService
+        .fetchNoteEngagement(noteIds, relays);
+    if (!mounted || generation != _engagementGeneration) return;
+    setState(() => _engagement = counts);
   }
 
   Future<void> _send() async {
@@ -112,6 +135,7 @@ class _ThreadPageState extends State<ThreadPage> {
                     profile: widget.parentProfile,
                     provenance: '',
                     loadImages: widget.loadImages,
+                    engagement: _engagement[widget.parent.id],
                     inThread: true,
                   ),
                   const SizedBox(height: 12),
@@ -132,6 +156,7 @@ class _ThreadPageState extends State<ThreadPage> {
                         provenance:
                             relayProvenance(result.noteRelays[reply.id]),
                         loadImages: widget.loadImages,
+                        engagement: _engagement[reply.id],
                       ),
                 ],
               ),

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'nostr_event.dart';
+import 'note_engagement.dart';
 
 class FeedResult {
   const FeedResult({
@@ -43,27 +44,12 @@ class _VerifiedEvent {
 /// never blocks the UI thread.
 List<_VerifiedEvent> _verifyRawEvents(List<_RawEvent> rawEvents) {
   final result = <_VerifiedEvent>[];
-  final verifiedById = <String, NostrEvent>{};
 
   for (final raw in rawEvents) {
-    final id = raw.json['id'];
-    if (id is! String) continue;
-
-    final existing = verifiedById[id];
-    if (existing != null) {
-      // Same id already verified; credit this relay only if it sent the
-      // same content (the id is a hash, so a forged copy cannot match).
-      if (existing.content == raw.json['content']) {
-        result.add(_VerifiedEvent(existing, raw.relay));
-      }
-      continue;
-    }
-
     final event = NostrEvent.fromJsonVerified(raw.json);
-    if (event == null) continue;
-
-    verifiedById[id] = event;
-    result.add(_VerifiedEvent(event, raw.relay));
+    if (event != null) {
+      result.add(_VerifiedEvent(event, raw.relay));
+    }
   }
 
   return result;
@@ -261,6 +247,55 @@ class RelayService {
       connectedRelays: connected,
       failedRelays: failed,
     );
+  }
+
+  Future<Map<String, NoteEngagement>> fetchNoteEngagement(
+    Iterable<String> noteIds,
+    List<String> relays,
+  ) async {
+    // One batched request per relay, never one connection per note.
+    final ids = noteIds.toSet().take(60).toList();
+    if (ids.isEmpty || relays.isEmpty) return const {};
+
+    final raw = <_RawEvent>[];
+    var respondingRelays = 0;
+
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelay(
+          relayUrl,
+          {
+            'kinds': [1, 6, 7],
+            '#e': ids,
+            'limit': 300,
+          },
+          timeout: const Duration(seconds: 5),
+        ).timeout(const Duration(seconds: 9));
+
+        raw.addAll(events.map((event) => _RawEvent(event, relayUrl)));
+        respondingRelays++;
+      } catch (error) {
+        debugPrint(
+          'MolStr: interaction query on $relayUrl failed: $error',
+        );
+      }
+    }));
+
+    // No response is unknown, not zero interactions.
+    if (respondingRelays == 0) return const {};
+
+    final verified = await compute(_verifyRawEvents, raw);
+    final counts = tallyNoteEngagement(
+      noteIds: ids,
+      verifiedEvents: verified.map((item) => item.event),
+    );
+
+    debugPrint(
+      'MolStr: counted ${verified.length} verified interaction deliveries '
+      'for ${ids.length} notes',
+    );
+
+    return counts;
   }
 
   Future<Map<String, ProfileMetadata>> _fetchProfiles(

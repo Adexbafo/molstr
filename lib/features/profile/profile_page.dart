@@ -1,3 +1,5 @@
+import 'dart:async';
+import '../../core/nostr/note_engagement.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -39,6 +41,8 @@ class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
   FeedResult? _result;
+  Map<String, NoteEngagement> _engagement = const {};
+  int _engagementGeneration = 0;
   bool _loading = false;
   String? _error;
 
@@ -60,24 +64,43 @@ class _ProfilePageState extends State<ProfilePage>
       _loading = true;
       _error = null;
     });
+
     try {
       final result = await widget.relayService.fetchFeed(
         widget.relays,
         limit: 50,
         authors: [widget.identity.pubkey],
       );
+
       if (!mounted) return;
+
       setState(() {
         _result = result;
+        _engagement = const {};
         _loading = false;
       });
+
+      unawaited(_loadEngagement(result));
     } catch (_) {
       if (!mounted) return;
+
       setState(() {
         _loading = false;
         _error = 'Could not load your profile from your relays.';
       });
     }
+  }
+
+  Future<void> _loadEngagement(FeedResult result) async {
+    final generation = ++_engagementGeneration;
+    if (result.notes.isEmpty || result.connectedRelays.isEmpty) return;
+
+    final counts = await widget.relayService.fetchNoteEngagement(
+      result.notes.map((note) => note.id),
+      result.connectedRelays,
+    );
+    if (!mounted || generation != _engagementGeneration) return;
+    setState(() => _engagement = counts);
   }
 
   Future<void> _copy(String text, String label) async {
@@ -100,11 +123,11 @@ class _ProfilePageState extends State<ProfilePage>
     final result = _result!;
     return notes.map((note) {
       return NoteCard(
-        event: note,
-        profile: result.profiles[note.pubkey],
-        provenance: relayProvenance(result.noteRelays[note.id]),
-        loadImages: widget.loadImages,
-      );
+          event: note,
+          profile: result.profiles[note.pubkey],
+          provenance: relayProvenance(result.noteRelays[note.id]),
+          loadImages: widget.loadImages,
+          engagement: _engagement[note.id]);
     }).toList();
   }
 

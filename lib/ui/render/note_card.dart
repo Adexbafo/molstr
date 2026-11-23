@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/note_engagement.dart';
 import '../widgets/molstr_avatar.dart';
 import '../widgets/nip05_badge.dart';
 import 'note_actions.dart';
@@ -36,6 +37,7 @@ class NoteCard extends StatelessWidget {
     required this.provenance,
     required this.loadImages,
     this.inThread = false,
+    this.engagement,
   });
 
   final NostrEvent event;
@@ -43,6 +45,7 @@ class NoteCard extends StatelessWidget {
   final String provenance;
   final bool loadImages;
   final bool inThread;
+  final NoteEngagement? engagement;
 
   Future<void> _copy(BuildContext context, String text, String label) async {
     await Clipboard.setData(ClipboardData(text: text));
@@ -124,6 +127,7 @@ class NoteCard extends StatelessWidget {
                 profile: profile,
                 loadImages: loadImages,
                 inThread: inThread,
+                engagement: engagement,
               ),
           ],
         ),

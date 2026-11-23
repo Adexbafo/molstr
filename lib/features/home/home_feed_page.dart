@@ -1,3 +1,5 @@
+import 'dart:async';
+import '../../core/nostr/note_engagement.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/nostr/nostr_event.dart';
@@ -28,6 +30,8 @@ class HomeFeedPage extends StatefulWidget {
 
 class _HomeFeedPageState extends State<HomeFeedPage> {
   FeedResult? _result;
+  Map<String, NoteEngagement> _engagement = const {};
+  int _engagementGeneration = 0;
   bool _loading = false;
   bool _hideReplies = true;
   bool _namedOnly = false;
@@ -69,8 +73,22 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
 
     setState(() {
       _result = result;
+      _engagement = const {};
       _loading = false;
     });
+    unawaited(_loadEngagement(result));
+  }
+
+  Future<void> _loadEngagement(FeedResult result) async {
+    final generation = ++_engagementGeneration;
+    if (result.notes.isEmpty || result.connectedRelays.isEmpty) return;
+
+    final counts = await widget.relayService.fetchNoteEngagement(
+      result.notes.map((note) => note.id),
+      result.connectedRelays,
+    );
+    if (!mounted || generation != _engagementGeneration) return;
+    setState(() => _engagement = counts);
   }
 
   bool _passesNameFilter(FeedResult result, String pubkey) =>
@@ -228,6 +246,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             profile: result.profiles[note.pubkey],
             provenance: relayProvenance(result.noteRelays[note.id]),
             loadImages: widget.loadImages,
+            engagement: _engagement[note.id],
           ),
         ),
       for (final poll in parsedPolls)
