@@ -11,6 +11,7 @@ import '../widgets/molstr_avatar.dart';
 import '../widgets/nip05_badge.dart';
 import 'note_actions.dart';
 import 'note_text.dart';
+import 'thread_page.dart';
 
 String formatTimestamp(int unixSeconds) {
   final created = DateTime.fromMillisecondsSinceEpoch(unixSeconds * 1000);
@@ -65,6 +66,22 @@ class NoteCard extends StatelessWidget {
     );
   }
 
+  void _openThread(BuildContext context) {
+    if (inThread) return;
+    final interactions = InteractionsScope.of(context);
+    if (interactions == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ThreadPage(
+          parent: event,
+          parentProfile: profile,
+          interactions: interactions,
+          loadImages: loadImages,
+        ),
+      ),
+    );
+  }
+
   Future<void> _copy(BuildContext context, String text, String label) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (!context.mounted) return;
@@ -78,98 +95,104 @@ class NoteCard extends StatelessWidget {
     final bestName = profile?.bestName ?? shortNpub(npub);
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                InkWell(
-                  onTap: () => _openAuthor(context),
-                  borderRadius: BorderRadius.circular(100),
-                  child: MolStrAvatar(
-                    name: bestName,
-                    picture: profile?.picture,
-                    loadImages: loadImages,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: InkWell(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: inThread ? null : () => _openThread(context),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  InkWell(
                     onTap: () => _openAuthor(context),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          bestName,
-                          style: textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        if (bestName != shortNpub(npub))
-                          Text(shortNpub(npub), style: textTheme.bodySmall),
-                        if (profile?.nip05 != null)
-                          Nip05Badge(
-                            identifier: profile!.nip05!,
-                            pubkey: event.pubkey,
-                          ),
-                      ],
+                    borderRadius: BorderRadius.circular(100),
+                    child: MolStrAvatar(
+                      name: bestName,
+                      picture: profile?.picture,
+                      loadImages: loadImages,
                     ),
                   ),
-                ),
-                Text(
-                  formatTimestamp(event.createdAt),
-                  style: textTheme.bodySmall,
-                ),
-                IconButton(
-                  tooltip: 'Copy author npub',
-                  onPressed: () => _copy(context, npub, 'Author npub copied.'),
-                  icon: const Icon(Icons.copy, size: 16),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            NoteText(content: event.content, loadImages: loadImages),
-            if (event.quotedEventId != null) ...[
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () {
-                  final noteId = Nip19.encodeKey('note', event.quotedEventId!);
-                  launchUrl(
-                    Uri.parse('https://njump.me/$noteId'),
-                    mode: LaunchMode.externalApplication,
-                  );
-                },
-                icon: const Icon(Icons.format_quote, size: 16),
-                label: const Text('Quoted note · Open on njump.me'),
-              ),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.verified_user_outlined, size: 12),
-                const SizedBox(width: 4),
-                const Text(
-                  'signature verified',
-                  style: TextStyle(fontSize: 11),
-                ),
-                if (provenance.isNotEmpty) ...[
-                  const SizedBox(width: 12),
-                  Text(provenance, style: textTheme.bodySmall),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _openAuthor(context),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bestName,
+                            style: textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          if (bestName != shortNpub(npub))
+                            Text(shortNpub(npub), style: textTheme.bodySmall),
+                          if (profile?.nip05 != null)
+                            Nip05Badge(
+                              identifier: profile!.nip05!,
+                              pubkey: event.pubkey,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Text(
+                    formatTimestamp(event.createdAt),
+                    style: textTheme.bodySmall,
+                  ),
+                  IconButton(
+                    tooltip: 'Copy author npub',
+                    onPressed: () =>
+                        _copy(context, npub, 'Author npub copied.'),
+                    icon: const Icon(Icons.copy, size: 16),
+                  ),
                 ],
-              ],
-            ),
-            if (event.kind == 1)
-              NoteActionBar(
-                event: event,
-                profile: profile,
-                loadImages: loadImages,
-                engagement: engagement,
-                inThread: inThread,
               ),
-          ],
+              const SizedBox(height: 10),
+              NoteText(content: event.content, loadImages: loadImages),
+              if (event.quotedEventId != null) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final noteId =
+                        Nip19.encodeKey('note', event.quotedEventId!);
+                    launchUrl(
+                      Uri.parse('https://njump.me/$noteId'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  },
+                  icon: const Icon(Icons.format_quote, size: 16),
+                  label: const Text('Quoted note · Open on njump.me'),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(Icons.verified_user_outlined, size: 12),
+                  const SizedBox(width: 4),
+                  const Text(
+                    'signature verified',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  if (provenance.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    Text(provenance, style: textTheme.bodySmall),
+                  ],
+                ],
+              ),
+              if (event.kind == 1)
+                NoteActionBar(
+                  event: event,
+                  profile: profile,
+                  loadImages: loadImages,
+                  engagement: engagement,
+                  inThread: inThread,
+                ),
+            ],
+          ),
         ),
       ),
     );

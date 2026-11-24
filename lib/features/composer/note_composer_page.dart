@@ -8,6 +8,7 @@ import '../../core/nostr/blossom.dart';
 import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../core/text/hashtags.dart';
+import '../../ui/widgets/emoji_picker.dart';
 
 // Poll events: kind 1068, responses kind 1018 (NIP-88). Zap polls are
 // NIP-75 kind 6969. Verify against https://github.com/nostr-protocol/nips
@@ -51,15 +52,25 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
   @override
   void initState() {
     super.initState();
-    _controller.addListener(() {
-      final next = Hashtags.extract(_controller.text);
-      if (!_listEquals(next, _hashtags)) {
-        setState(() => _hashtags = next);
-      }
-    });
+    _controller.addListener(_onTextChanged);
   }
 
-  bool _listEquals(List<String> a, List<String> b) {
+  void _onTextChanged() {
+    if (!mounted) return;
+    setState(() => _hashtags = Hashtags.extract(_controller.text));
+  }
+
+  void _onControllerChanged(String value) {
+    final next = Hashtags.extract(value);
+    if (!_sameList(next, _hashtags)) {
+      setState(() => _hashtags = next);
+      return;
+    }
+    // Always rebuild the char counter too.
+    setState(() {});
+  }
+
+  bool _sameList(List<String> a, List<String> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
       if (a[i] != b[i]) return false;
@@ -126,6 +137,24 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     _controller.selection = TextSelection.collapsed(
       offset: _controller.text.length,
     );
+    _onControllerChanged(_controller.text);
+  }
+
+  Future<void> _insertEmoji() async {
+    final emoji = await showEmojiPickerSheet(context);
+    if (emoji == null || emoji.isEmpty || !mounted) return;
+    final text = _controller.text;
+    final selection = _controller.selection;
+    final offset =
+        selection.baseOffset >= 0 && selection.baseOffset <= text.length
+            ? selection.baseOffset
+            : text.length;
+    final next = text.replaceRange(offset, offset, emoji);
+    _controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: offset + emoji.length),
+    );
+    _onControllerChanged(next);
   }
 
   Future<void> _attachImage() async {
@@ -170,6 +199,7 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
+    _onControllerChanged(_controller.text);
   }
 
   Future<List<int>?> _readPath(String path) async {
@@ -376,6 +406,7 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                 },
                 border: const OutlineInputBorder(),
               ),
+              onChanged: _onControllerChanged,
             ),
             if (_mode == 'article') ...[
               const SizedBox(height: 12),
@@ -437,6 +468,11 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.attach_file),
+                ),
+                IconButton(
+                  tooltip: 'Add emoji',
+                  onPressed: _publishing ? null : _insertEmoji,
+                  icon: const Icon(Icons.mood_outlined),
                 ),
                 TextButton.icon(
                   onPressed: _publishing ? null : _insertGif,

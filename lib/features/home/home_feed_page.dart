@@ -253,6 +253,17 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             engagement: _engagement[note.id],
           ),
         ),
+      for (final note in visibleNotes)
+        (
+          note.createdAt,
+          NoteCard(
+            event: note,
+            profile: result.profiles[note.pubkey],
+            provenance: relayProvenance(result.noteRelays[note.id]),
+            loadImages: widget.loadImages,
+            engagement: _engagement[note.id],
+          ),
+        ),
       for (final poll in parsedPolls)
         (
           poll.event.createdAt,

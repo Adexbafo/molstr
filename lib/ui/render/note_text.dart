@@ -8,11 +8,13 @@ class NoteText extends StatelessWidget {
     required this.content,
     this.style,
     this.loadImages = false,
+    this.selectable = true,
   });
 
   final String content;
   final TextStyle? style;
   final bool loadImages;
+  final bool selectable;
 
   static final _imagePattern = RegExp(
     r'https?://[^\s]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s]*)?',
@@ -59,7 +61,9 @@ class NoteText extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SelectableText.rich(TextSpan(style: base, children: spans)),
+        selectable
+            ? SelectableText.rich(TextSpan(style: base, children: spans))
+            : Text.rich(TextSpan(style: base, children: spans)),
         if (images.isNotEmpty) const SizedBox(height: 8),
         for (final url in images) ...[
           if (loadImages)
