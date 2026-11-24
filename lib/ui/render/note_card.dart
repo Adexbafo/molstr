@@ -1,10 +1,12 @@
-import 'package:url_launcher/url_launcher.dart';
-import '../../core/nostr/nip19.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/nostr/interactions.dart';
+import '../../core/nostr/nip19.dart';
 import '../../core/nostr/nostr_event.dart';
 import '../../core/nostr/note_engagement.dart';
+import '../../features/profile/user_profile_page.dart';
 import '../widgets/molstr_avatar.dart';
 import '../widgets/nip05_badge.dart';
 import 'note_actions.dart';
@@ -38,16 +40,30 @@ class NoteCard extends StatelessWidget {
     required this.profile,
     required this.provenance,
     required this.loadImages,
-    this.inThread = false,
     this.engagement,
+    this.inThread = false,
   });
 
   final NostrEvent event;
   final ProfileMetadata? profile;
   final String provenance;
   final bool loadImages;
-  final bool inThread;
   final NoteEngagement? engagement;
+  final bool inThread;
+
+  void _openAuthor(BuildContext context) {
+    final interactions = InteractionsScope.of(context);
+    if (interactions == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => UserProfilePage(
+          pubkey: event.pubkey,
+          interactions: interactions,
+          loadImages: loadImages,
+        ),
+      ),
+    );
+  }
 
   Future<void> _copy(BuildContext context, String text, String label) async {
     await Clipboard.setData(ClipboardData(text: text));
@@ -70,29 +86,37 @@ class NoteCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                MolStrAvatar(
-                  name: bestName,
-                  picture: profile?.picture,
-                  loadImages: loadImages,
+                InkWell(
+                  onTap: () => _openAuthor(context),
+                  borderRadius: BorderRadius.circular(100),
+                  child: MolStrAvatar(
+                    name: bestName,
+                    picture: profile?.picture,
+                    loadImages: loadImages,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        bestName,
-                        style: textTheme.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      if (bestName != shortNpub(npub))
-                        Text(shortNpub(npub), style: textTheme.bodySmall),
-                      if (profile?.nip05 != null)
-                        Nip05Badge(
-                          identifier: profile!.nip05!,
-                          pubkey: event.pubkey,
+                  child: InkWell(
+                    onTap: () => _openAuthor(context),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          bestName,
+                          style: textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
-                    ],
+                        if (bestName != shortNpub(npub))
+                          Text(shortNpub(npub), style: textTheme.bodySmall),
+                        if (profile?.nip05 != null)
+                          Nip05Badge(
+                            identifier: profile!.nip05!,
+                            pubkey: event.pubkey,
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 Text(
@@ -142,8 +166,8 @@ class NoteCard extends StatelessWidget {
                 event: event,
                 profile: profile,
                 loadImages: loadImages,
-                inThread: inThread,
                 engagement: engagement,
+                inThread: inThread,
               ),
           ],
         ),

@@ -98,6 +98,25 @@ class Interactions {
     return _publish(event);
   }
 
+  /// NIP-88 vote on a kind 1068 poll (kind 1018 response).
+  ///
+  /// One `response` tag is written per chosen option code.
+  Future<int> votePoll(NostrEvent poll, List<String> responseCodes) async {
+    if (responseCodes.isEmpty) {
+      throw const FormatException('Select at least one option.');
+    }
+    final hint = relays.isNotEmpty ? relays.first : '';
+    final event = await identityService.signEvent(
+      kind: 1018,
+      content: '',
+      tags: [
+        ['e', poll.id, hint],
+        for (final code in responseCodes) ['response', code],
+      ],
+    );
+    return _publish(event);
+  }
+
   /// NIP-10 reply to a kind-1 note.
   Future<int> reply(NostrEvent parent, String content) async {
     final event = await identityService.signEvent(

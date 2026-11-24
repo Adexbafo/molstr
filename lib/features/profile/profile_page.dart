@@ -84,6 +84,8 @@ class _ProfilePageState extends State<ProfilePage>
       });
 
       unawaited(_loadEngagement(result));
+
+      unawaited(_loadEngagement(result));
     } catch (_) {
       if (!mounted) return;
 
@@ -96,14 +98,34 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<void> _loadEngagement(FeedResult result) async {
     final generation = ++_engagementGeneration;
-    if (result.notes.isEmpty || result.connectedRelays.isEmpty) return;
 
-    final counts = await widget.relayService.fetchNoteEngagement(
-      result.notes.map((note) => note.id),
-      result.connectedRelays,
-    );
-    if (!mounted || generation != _engagementGeneration) return;
-    setState(() => _engagement = counts);
+    final ids = <String>{
+      ...result.polls.map((poll) => poll.id),
+      ...result.notes.map((note) => note.id),
+    }.toList();
+
+    if (ids.isEmpty || result.connectedRelays.isEmpty) return;
+
+    try {
+      final counts = await widget.relayService.fetchNoteEngagement(
+        ids,
+        result.connectedRelays,
+      );
+
+      if (!mounted || generation != _engagementGeneration) return;
+
+      setState(() => _engagement = counts);
+    } catch (_) {
+      if (!mounted || generation != _engagementGeneration) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Interaction counts could not be refreshed. Try refreshing again.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _copy(String text, String label) async {
@@ -154,7 +176,9 @@ class _ProfilePageState extends State<ProfilePage>
           (poll) => PollCard(
             poll: poll,
             profile: result.profiles[poll.event.pubkey],
-            provenance: relayProvenance(result.noteRelays[poll.event.id]),
+            provenance: relayProvenance(
+              result.noteRelays[poll.event.id],
+            ),
             loadImages: widget.loadImages,
             engagement: _engagement[poll.event.id],
           ),

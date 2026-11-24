@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'nostr_event.dart';
 import 'note_engagement.dart';
+import 'poll_results.dart';
 
 class FeedResult {
   const FeedResult({
@@ -511,6 +512,49 @@ class RelayService {
     );
 
     return result;
+  }
+
+  /// NIP-01 query with verification, for internal use (not the feed).
+  Future<List<NostrEvent>> fetchEvents(
+    Map<String, dynamic> filter,
+    List<String> relays,
+  ) async {
+    final raw = <_RawEvent>[];
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelay(
+          relayUrl,
+          filter,
+          timeout: const Duration(seconds: 6),
+        ).timeout(const Duration(seconds: 12));
+        raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
+      } catch (error) {
+        debugPrint('MolStr: query on $relayUrl failed: $error');
+      }
+    }));
+    final verified = await compute(_verifyRawEvents, raw);
+    return verified.map((item) => item.event).toList();
+  }
+
+  /// Fetches and tallies verified kind 1018 responses for [pollId].
+  Future<PollResults> fetchPollResults(
+    String pollId,
+    List<String> relays, {
+    String? myPubkey,
+  }) async {
+    final events = await fetchEvents(
+      {
+        'kinds': [1018],
+        '#e': [pollId],
+        'limit': 500,
+      },
+      relays,
+    );
+    return buildPollResults(
+      pollId: pollId,
+      verifiedEvents: events,
+      myPubkey: myPubkey,
+    );
   }
 
   Future<List<Map<String, dynamic>>> _queryRelay(
