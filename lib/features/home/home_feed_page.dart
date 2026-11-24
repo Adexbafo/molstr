@@ -81,10 +81,14 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
 
   Future<void> _loadEngagement(FeedResult result) async {
     final generation = ++_engagementGeneration;
-    if (result.notes.isEmpty || result.connectedRelays.isEmpty) return;
+    final ids = [
+      ...result.notes.map((note) => note.id),
+      ...result.polls.map((poll) => poll.id),
+    ];
+    if (ids.isEmpty || result.connectedRelays.isEmpty) return;
 
     final counts = await widget.relayService.fetchNoteEngagement(
-      result.notes.map((note) => note.id),
+      ids,
       result.connectedRelays,
     );
     if (!mounted || generation != _engagementGeneration) return;
@@ -257,6 +261,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             profile: result.profiles[poll.event.pubkey],
             provenance: relayProvenance(result.noteRelays[poll.event.id]),
             loadImages: widget.loadImages,
+            engagement: _engagement[poll.event.id],
           ),
         ),
       for (final article in parsedArticles)

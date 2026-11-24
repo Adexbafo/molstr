@@ -12,6 +12,7 @@ import 'profile_editor_page.dart';
 import '../../core/nostr/nostr_event.dart';
 import '../../ui/render/poll_card.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../ui/widgets/account_switcher_sheet.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -23,6 +24,7 @@ class ProfilePage extends StatefulWidget {
     required this.identityService,
     required this.onOpenSupport,
     required this.onRemoveIdentity,
+    required this.onAccountsChanged,
   });
 
   final Identity identity;
@@ -32,6 +34,7 @@ class ProfilePage extends StatefulWidget {
   final bool loadImages;
   final VoidCallback onOpenSupport;
   final VoidCallback onRemoveIdentity;
+  final VoidCallback onAccountsChanged;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -153,6 +156,7 @@ class _ProfilePageState extends State<ProfilePage>
             profile: result.profiles[poll.event.pubkey],
             provenance: relayProvenance(result.noteRelays[poll.event.id]),
             loadImages: widget.loadImages,
+            engagement: _engagement[poll.event.id],
           ),
         )
         .toList();
@@ -336,6 +340,16 @@ class _ProfilePageState extends State<ProfilePage>
                     },
                     icon: const Icon(Icons.edit_outlined),
                     label: const Text('Edit profile'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => showAccountSwitcherSheet(
+                      context: context,
+                      identityService: widget.identityService,
+                      activeIdentity: widget.identity,
+                      onRefresh: widget.onAccountsChanged,
+                    ),
+                    icon: const Icon(Icons.switch_account),
+                    label: const Text('Accounts'),
                   ),
                   const SizedBox(width: 8),
                   TextButton.icon(

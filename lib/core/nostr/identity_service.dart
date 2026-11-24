@@ -1,10 +1,11 @@
-import 'nostr_event.dart';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:bip340/bip340.dart' as bip340;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'nip19.dart';
+import 'nostr_event.dart';
 
 class Identity {
   const Identity({
@@ -27,7 +28,10 @@ class GeneratedIdentity {
 }
 
 class IdentityService {
-  static const _nsecStorageKey = 'molstr.identity.nsec';
+  static const _legacyNsecStorageKey = 'molstr.identity.nsec';
+  static const _activePubkeyStorageKey = 'molstr.active.pubkey';
+  static const _accountsListStorageKey = 'molstr.accounts.list';
+  static const _nsecPrefix = 'molstr.nsec.';
 
   IdentityService({FlutterSecureStorage? storage})
       : _storage = storage ?? const FlutterSecureStorage();
@@ -64,26 +68,107 @@ class IdentityService {
     throw StateError('Could not generate a valid Nostr key.');
   }
 
+  /// Migrates single-key storage to multi-account format seamlessly.
+  Future<void> _migrateLegacy() async {
+    final legacyNsec = await _storage.read(key: _legacyNsecStorageKey);
+    if (legacyNsec != null && legacyNsec.isNotEmpty) {
+      final identity = identityFromNsec(legacyNsec.trim());
+      await _storage.write(
+        key: '$_nsecPrefix${identity.pubkey}',
+        value: legacyNsec.trim(),
+      );
+      await _storage.write(
+        key: _accountsListStorageKey,
+        value: jsonEncode([identity.pubkey]),
+      );
+      await _storage.write(
+        key: _activePubkeyStorageKey,
+        value: identity.pubkey,
+      );
+      await _storage.delete(key: _legacyNsecStorageKey);
+    }
+  }
+
+  Future<List<Identity>> listIdentities() async {
+    await _migrateLegacy();
+    final rawList = await _storage.read(key: _accountsListStorageKey);
+    if (rawList == null || rawList.isEmpty) return const [];
+
+    try {
+      final pubkeys = List<String>.from(jsonDecode(rawList));
+      return pubkeys
+          .map((pk) => Identity(pubkey: pk, npub: Nip19.npubFromHex(pk)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<Identity?> currentIdentity() async {
+    await _migrateLegacy();
+    final activePubkey = await _storage.read(key: _activePubkeyStorageKey);
+    if (activePubkey == null || activePubkey.isEmpty) return null;
+    return Identity(
+      pubkey: activePubkey,
+      npub: Nip19.npubFromHex(activePubkey),
+    );
+  }
+
+  Future<void> switchAccount(String pubkey) async {
+    await _storage.write(key: _activePubkeyStorageKey, value: pubkey);
+  }
+
   Future<Identity> saveIdentity(String nsec) async {
+    await _migrateLegacy();
     final normalized = nsec.trim();
     final identity = identityFromNsec(normalized);
 
     await _storage.write(
-      key: _nsecStorageKey,
+      key: '$_nsecPrefix${identity.pubkey}',
       value: normalized,
     );
 
+    final existing = await listIdentities();
+    final pubkeys = existing.map((i) => i.pubkey).toSet()..add(identity.pubkey);
+    await _storage.write(
+      key: _accountsListStorageKey,
+      value: jsonEncode(pubkeys.toList()),
+    );
+
+    await switchAccount(identity.pubkey);
     return identity;
   }
 
-  Future<Identity?> currentIdentity() async {
-    final nsec = await _storage.read(key: _nsecStorageKey);
-    if (nsec == null || nsec.isEmpty) return null;
-    return identityFromNsec(nsec);
+  Future<void> signOut() async {
+    await _storage.delete(key: _activePubkeyStorageKey);
+  }
+
+  Future<void> removeAccount(String pubkey) async {
+    await _storage.delete(key: '$_nsecPrefix$pubkey');
+    final existing = await listIdentities();
+    final updated =
+        existing.where((i) => i.pubkey != pubkey).map((i) => i.pubkey).toList();
+
+    await _storage.write(
+      key: _accountsListStorageKey,
+      value: jsonEncode(updated),
+    );
+
+    final current = await _storage.read(key: _activePubkeyStorageKey);
+    if (current == pubkey) {
+      if (updated.isNotEmpty) {
+        await switchAccount(updated.first);
+      } else {
+        await signOut();
+      }
+    }
   }
 
   Future<void> deleteIdentity() async {
-    await _storage.delete(key: _nsecStorageKey);
+    final active = await currentIdentity();
+    if (active != null) {
+      await removeAccount(active.pubkey);
+    }
   }
 
   Identity identityFromNsec(String nsec) {
@@ -101,11 +186,16 @@ class IdentityService {
     required String content,
     List<List<String>> tags = const [],
   }) async {
-    final nsec = await _storage.read(key: _nsecStorageKey);
-    if (nsec == null || nsec.isEmpty) {
+    final active = await currentIdentity();
+    if (active == null) {
       throw StateError('No identity connected.');
     }
-    // Hex exists only inside this call; never stored.
+
+    final nsec = await _storage.read(key: '$_nsecPrefix${active.pubkey}');
+    if (nsec == null || nsec.isEmpty) {
+      throw StateError('No private key available for signing.');
+    }
+
     final hex = Nip19.hexFromNsec(nsec);
     return NostrEvent.sign(
       privateKeyHex: hex,

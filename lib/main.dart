@@ -14,6 +14,7 @@ import 'ui/theme/app_theme.dart';
 import 'features/composer/note_composer_page.dart';
 import 'core/nostr/interactions.dart';
 import 'features/tools/tools_page.dart';
+import 'ui/widgets/account_switcher_sheet.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -296,6 +297,7 @@ class _MolStrShellState extends State<MolStrShell> {
     if (_identityError != null) {
       return Center(child: Text(_identityError!));
     }
+
     final identity = _identity;
     if (identity == null) {
       return Center(
@@ -311,11 +313,24 @@ class _MolStrShellState extends State<MolStrShell> {
               icon: const Icon(Icons.key_outlined),
               label: const Text('Get started'),
             ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => showAccountSwitcherSheet(
+                context: context,
+                identityService: _identityService,
+                activeIdentity: null,
+                onRefresh: _loadIdentity,
+              ),
+              icon: const Icon(Icons.switch_account),
+              label: const Text('Switch / Manage Accounts'),
+            ),
           ],
         ),
       );
     }
+
     return ProfilePage(
+      key: ValueKey(identity.pubkey),
       identity: identity,
       identityService: _identityService,
       relayService: widget.relayService,
@@ -323,6 +338,7 @@ class _MolStrShellState extends State<MolStrShell> {
       loadImages: widget.loadImages,
       onOpenSupport: _openSupport,
       onRemoveIdentity: _removeIdentity,
+      onAccountsChanged: _loadIdentity,
     );
   }
 
