@@ -12,6 +12,7 @@ class BlossomUpload {
     required String mimeType,
     required String server,
     required IdentityService identityService,
+    Duration timeout = const Duration(seconds: 45),
   }) async {
     final sha = sha256.convert(bytes).toString();
     final expiration =
@@ -29,6 +30,24 @@ class BlossomUpload {
     );
 
     final auth = base64Encode(utf8.encode(jsonEncode(authEvent.toJson())));
+    final serverUri = Uri.tryParse(server.trim());
+    if (serverUri == null ||
+        !serverUri.hasAuthority ||
+        serverUri.host.isEmpty) {
+      throw const FormatException('Invalid Blossom server URL.');
+    }
+
+    final scheme = serverUri.scheme.toLowerCase();
+    final host = serverUri.host.toLowerCase();
+    final isLoopback =
+        host == 'localhost' || host == '127.0.0.1' || host == '::1';
+
+    if (scheme != 'https' && !(scheme == 'http' && isLoopback)) {
+      throw const FormatException(
+        'Remote Blossom servers must use https.',
+      );
+    }
+
     final base =
         server.trim().endsWith('/') ? server.trim() : '${server.trim()}/';
     final endpoint = Uri.parse(base).resolve('upload');
@@ -42,7 +61,7 @@ class BlossomUpload {
           },
           body: bytes,
         )
-        .timeout(const Duration(seconds: 45));
+        .timeout(timeout);
 
     if (res.statusCode != 200 && res.statusCode != 201) {
       final preview =
@@ -52,7 +71,16 @@ class BlossomUpload {
 
     final data = jsonDecode(res.body);
     final url = data is Map ? data['url'] : null;
-    if (url is String && url.startsWith('http')) return url;
-    throw Exception('Server did not return an image URL.');
+
+    if (url is String) {
+      final mediaUri = Uri.tryParse(url);
+      if (mediaUri != null &&
+          mediaUri.hasAuthority &&
+          mediaUri.scheme.toLowerCase() == 'https') {
+        return url;
+      }
+    }
+
+    throw Exception('Server did not return a secure media URL.');
   }
 }

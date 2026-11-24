@@ -4,15 +4,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../core/media/video_policy.dart';
 import '../../core/nostr/blossom.dart';
 import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../core/text/hashtags.dart';
 import '../../ui/widgets/emoji_picker.dart';
 
-// Poll events: kind 1068, responses kind 1018 (NIP-88). Zap polls are
-// NIP-75 kind 6969. Verify against https://github.com/nostr-protocol/nips
-// before relying on this in production.
+// Poll events: kind 1068, responses kind 1018 (NIP-88).
 const _pollKind = 1068;
 
 class NoteComposerPage extends StatefulWidget {
@@ -52,12 +51,7 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
   @override
   void initState() {
     super.initState();
-    _controller.addListener(_onTextChanged);
-  }
-
-  void _onTextChanged() {
-    if (!mounted) return;
-    setState(() => _hashtags = Hashtags.extract(_controller.text));
+    _hashtags = Hashtags.extract(_controller.text);
   }
 
   void _onControllerChanged(String value) {
@@ -66,7 +60,6 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
       setState(() => _hashtags = next);
       return;
     }
-    // Always rebuild the char counter too.
     setState(() {});
   }
 
@@ -131,13 +124,7 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
       _showMessage('Use a full https:// image URL.');
       return;
     }
-    final text = _controller.text;
-    final separator = text.isEmpty || text.endsWith('\n') ? '' : '\n';
-    _controller.text = '$text$separator$url';
-    _controller.selection = TextSelection.collapsed(
-      offset: _controller.text.length,
-    );
-    _onControllerChanged(_controller.text);
+    _appendMediaUrl(url);
   }
 
   Future<void> _insertEmoji() async {
@@ -155,6 +142,16 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
       selection: TextSelection.collapsed(offset: offset + emoji.length),
     );
     _onControllerChanged(next);
+  }
+
+  void _appendMediaUrl(String url) {
+    final text = _controller.text;
+    final separator = text.isEmpty || text.endsWith('\n') ? '' : '\n';
+    _controller.text = '$text$separator$url';
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
+    _onControllerChanged(_controller.text);
   }
 
   Future<void> _attachImage() async {
@@ -186,11 +183,8 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
         server: _blossomServer,
         identityService: widget.identityService,
       );
-      final text = _controller.text;
-      final sep = text.isEmpty || text.endsWith('\n') ? '' : '\n';
-      _controller.text = '$text$sep$url';
-      _controller.selection =
-          TextSelection.collapsed(offset: _controller.text.length);
+      if (!mounted) return;
+      _appendMediaUrl(url);
       _showMessage('Image uploaded. URL added to your note.');
     } catch (error) {
       _showMessage(
@@ -199,7 +193,111 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
-    _onControllerChanged(_controller.text);
+  }
+
+  Future<void> _attachVideo() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['mp4', 'webm', 'mov'],
+      withData: false,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    final picked = result.files.single;
+    final mimeType = VideoPolicy.mimeTypeForFilename(picked.name);
+
+    if (mimeType == null) {
+      _showMessage('Choose an MP4, WebM, or MOV video.');
+      return;
+    }
+
+    if (!VideoPolicy.acceptsSize(picked.size)) {
+      _showMessage('Video must be between 1 byte and 25 MiB.');
+      return;
+    }
+
+    final sizeMiB = picked.size / (1024 * 1024);
+
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Upload video?'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('File: ${picked.name}'),
+              Text('Size: ${sizeMiB.toStringAsFixed(1)} MiB'),
+              Text('Type: $mimeType'),
+              const SizedBox(height: 12),
+              Text('Server: $_blossomServer'),
+              const SizedBox(height: 12),
+              const Text(
+                'The upload server will receive this file and your IP '
+                'address. The file may also contain identifying metadata. '
+                'The resulting URL will be public when you publish the note.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.cloud_upload_outlined),
+            label: const Text('Upload'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _attaching = true);
+
+    try {
+      final bytes = picked.bytes ??
+          (picked.path != null ? await _readPath(picked.path!) : null);
+
+      if (bytes == null) {
+        throw Exception('Could not read the selected video.');
+      }
+
+      if (!VideoPolicy.acceptsSize(bytes.length)) {
+        throw Exception('Video is larger than 25 MiB.');
+      }
+
+      final url = await BlossomUpload.upload(
+        bytes: bytes,
+        filename: picked.name,
+        mimeType: mimeType,
+        server: _blossomServer,
+        identityService: widget.identityService,
+        timeout: const Duration(minutes: 2),
+      );
+
+      if (!mounted) return;
+
+      _appendMediaUrl(url);
+      _showMessage('Video uploaded. URL added to your note.');
+    } catch (error) {
+      _showMessage(
+        'Video upload failed: '
+        '${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _attaching = false);
+      }
+    }
   }
 
   Future<List<int>?> _readPath(String path) async {
@@ -468,6 +566,11 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.attach_file),
+                ),
+                IconButton(
+                  tooltip: 'Attach video',
+                  onPressed: _publishing || _attaching ? null : _attachVideo,
+                  icon: const Icon(Icons.video_file_outlined),
                 ),
                 IconButton(
                   tooltip: 'Add emoji',
