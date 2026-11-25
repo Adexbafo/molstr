@@ -36,6 +36,7 @@ void main() {
     expect(results.voterCount, 2);
     expect(results.optionCounts['0'], 1);
     expect(results.optionCounts['1'], 1);
+    expect(results.voters.length, 2);
   });
 
   test('multiplechoice response tags are all counted', () {

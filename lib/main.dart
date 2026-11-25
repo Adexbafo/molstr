@@ -15,6 +15,7 @@ import 'features/composer/note_composer_page.dart';
 import 'core/nostr/interactions.dart';
 import 'features/tools/tools_page.dart';
 import 'ui/widgets/account_switcher_sheet.dart';
+import 'features/notifications/notifications_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -226,9 +227,15 @@ class _MolStrShellState extends State<MolStrShell> {
 
   Future<void> _openOnboarding() async {
     final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(builder: (_) => const OnboardingPage()),
+      MaterialPageRoute<bool>(
+        builder: (_) => const OnboardingPage(),
+      ),
     );
-    if (saved == true) await _loadIdentity();
+
+    if (!mounted) return;
+    if (saved == true) {
+      await _loadIdentity();
+    }
   }
 
   Future<void> _openComposer() async {
@@ -357,7 +364,13 @@ class _MolStrShellState extends State<MolStrShell> {
           refreshToken: _feedRefreshToken,
         ),
         const Center(child: Text('Nostr games showcase: coming next.')),
-        const Center(child: Text('Notifications: coming next.')),
+        NotificationsPage(
+          key: ValueKey(_identity?.pubkey ?? 'signed-out'),
+          relayService: widget.relayService,
+          relays: widget.relays,
+          pubkey: _identity?.pubkey,
+          loadImages: widget.loadImages,
+        ),
         const Center(
             child: Text('Wallet: NWC and Monero handoff coming next.')),
         _profilePage(),

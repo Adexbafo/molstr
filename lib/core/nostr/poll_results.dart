@@ -1,28 +1,35 @@
 import 'nostr_event.dart';
 
+class PollVoter {
+  const PollVoter({
+    required this.pubkey,
+    required this.responses,
+    required this.createdAt,
+  });
+
+  final String pubkey;
+  final List<String> responses;
+  final int createdAt;
+}
+
 class PollResults {
   const PollResults({
     required this.optionCounts,
     required this.voterCount,
     required this.myResponses,
+    this.voters = const [],
+    this.available = true,
   });
 
-  /// option code -> number of voters who chose it.
   final Map<String, int> optionCounts;
-
-  /// Number of distinct authors whose latest response had at least one option.
   final int voterCount;
-
-  /// The current user's latest chosen option codes (empty if not voted).
   final List<String> myResponses;
+  final List<PollVoter> voters;
+
+  /// False means the relays could not be reached, not that nobody voted.
+  final bool available;
 }
 
-/// Tallies already-verified kind 1018 events.
-///
-/// Counting rules (explicit, and only as good as your selected relays):
-/// 1. Only kind 1018 events referencing [pollId] with an `e` tag are counted.
-/// 2. Per author, only the newest event wins (re-voting replaces the old one).
-/// 3. Each `response` tag that matches an option code of the poll counts once.
 PollResults buildPollResults({
   required String pollId,
   required Iterable<NostrEvent> verifiedEvents,
@@ -44,7 +51,7 @@ PollResults buildPollResults({
   }
 
   final counts = <String, int>{};
-  var voters = 0;
+  final voters = <PollVoter>[];
   var myResponses = <String>[];
 
   for (final event in byAuthor.values) {
@@ -53,18 +60,28 @@ PollResults buildPollResults({
         if (tag.length >= 2 && tag[0] == 'response') tag[1],
     ];
     if (codes.isEmpty) continue;
-    voters++;
+
     for (final code in codes.toSet()) {
       counts[code] = (counts[code] ?? 0) + 1;
     }
+    voters.add(
+      PollVoter(
+        pubkey: event.pubkey,
+        responses: codes,
+        createdAt: event.createdAt,
+      ),
+    );
     if (myPubkey != null && event.pubkey == myPubkey) {
       myResponses = codes;
     }
   }
 
+  voters.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
   return PollResults(
     optionCounts: counts,
-    voterCount: voters,
+    voterCount: voters.length,
     myResponses: myResponses,
+    voters: voters,
   );
 }

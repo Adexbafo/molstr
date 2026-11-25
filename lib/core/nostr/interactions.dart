@@ -111,6 +111,7 @@ class Interactions {
       content: '',
       tags: [
         ['e', poll.id, hint],
+        ['p', poll.pubkey],
         for (final code in responseCodes) ['response', code],
       ],
     );

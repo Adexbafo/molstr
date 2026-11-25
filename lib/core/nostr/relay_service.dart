@@ -56,6 +56,18 @@ List<_VerifiedEvent> _verifyRawEvents(List<_RawEvent> rawEvents) {
   return result;
 }
 
+class RelayQueryResult {
+  const RelayQueryResult({
+    required this.events,
+    required this.respondingRelays,
+  });
+
+  final List<NostrEvent> events;
+  final int respondingRelays;
+
+  bool get reachedRelay => respondingRelays > 0;
+}
+
 class RelayService {
   RelayService({SharedPreferences? preferences}) : _preferences = preferences;
 
@@ -514,6 +526,39 @@ class RelayService {
     return result;
   }
 
+  Future<RelayQueryResult> queryEvents(
+    Map<String, dynamic> filter,
+    List<String> relays,
+  ) async {
+    final raw = <_RawEvent>[];
+    var responding = 0;
+
+    await Future.wait(relays.map((relayUrl) async {
+      try {
+        final events = await _queryRelay(
+          relayUrl,
+          filter,
+          timeout: const Duration(seconds: 6),
+        ).timeout(const Duration(seconds: 12));
+        raw.addAll(events.map((event) => _RawEvent(event, relayUrl)));
+        responding++;
+      } catch (error) {
+        debugPrint('MolStr: query on $relayUrl failed: $error');
+      }
+    }));
+
+    final verified = await compute(_verifyRawEvents, raw);
+    final byId = <String, NostrEvent>{};
+    for (final item in verified) {
+      byId.putIfAbsent(item.event.id, () => item.event);
+    }
+
+    return RelayQueryResult(
+      events: byId.values.toList(),
+      respondingRelays: responding,
+    );
+  }
+
   /// NIP-01 query with verification, for internal use (not the feed).
   Future<List<NostrEvent>> fetchEvents(
     Map<String, dynamic> filter,
@@ -542,7 +587,7 @@ class RelayService {
     List<String> relays, {
     String? myPubkey,
   }) async {
-    final events = await fetchEvents(
+    final query = await queryEvents(
       {
         'kinds': [1018],
         '#e': [pollId],
@@ -550,9 +595,19 @@ class RelayService {
       },
       relays,
     );
+
+    if (!query.reachedRelay) {
+      return PollResults(
+        optionCounts: const {},
+        voterCount: 0,
+        myResponses: const [],
+        available: false,
+      );
+    }
+
     return buildPollResults(
       pollId: pollId,
-      verifiedEvents: events,
+      verifiedEvents: query.events,
       myPubkey: myPubkey,
     );
   }

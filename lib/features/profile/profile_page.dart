@@ -8,6 +8,7 @@ import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
+import '../../ui/widgets/social_counts_line.dart';
 import 'profile_editor_page.dart';
 import '../../core/nostr/nostr_event.dart';
 import '../../ui/render/poll_card.dart';
@@ -276,6 +277,12 @@ class _ProfilePageState extends State<ProfilePage>
                             pubkey: widget.identity.pubkey,
                           ),
                         ],
+                        const SizedBox(height: 6),
+                        SocialCountsLine(
+                          pubkey: widget.identity.pubkey,
+                          relayService: widget.relayService,
+                          relays: widget.relays,
+                        ),
                         if (profile?.about != null) ...[
                           const SizedBox(height: 8),
                           Text(profile!.about!),

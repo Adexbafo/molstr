@@ -10,6 +10,7 @@ import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
+import '../../ui/widgets/social_counts_line.dart';
 
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({
@@ -173,6 +174,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
                               identifier: profile!.nip05!,
                               pubkey: widget.pubkey,
                             ),
+                          const SizedBox(height: 6),
+                          SocialCountsLine(
+                            pubkey: widget.pubkey,
+                            relayService: widget.interactions.relayService,
+                            relays: widget.interactions.relays,
+                          ),
                           if (profile?.about != null) ...[
                             const SizedBox(height: 8),
                             Text(profile!.about!),
