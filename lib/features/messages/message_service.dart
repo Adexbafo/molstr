@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/nip19.dart';
 import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/dm_relays.dart';
 import '../../core/nostr/private_messages.dart';
 import '../../core/nostr/relay_service.dart';
 
@@ -165,8 +166,9 @@ class MessageService {
   /// Wraps and publishes one message: a copy for [partnerPubkey] and a copy
   /// for the sender, so the message appears in both inboxes.
   ///
-  /// Returns counts of relays that accepted each copy. It does not retry;
-  /// the caller decides what to tell the user.
+  /// The partner's copy goes to the partner's kind-10050 DM relay list when
+  /// they have one, otherwise to [relays]. The sender's copy always goes to
+  /// [relays] — publishing our own DM relay list is a separate slice.
   Future<SendResult> sendMessage({
     required String senderPubkey,
     required String partnerPubkey,
@@ -192,19 +194,19 @@ class MessageService {
     final me = senderPubkey.toLowerCase();
     final partner = partnerPubkey.toLowerCase();
 
+    final partnerDmRelays = await _fetchPartnerDmRelays(
+      partnerPubkey: partner,
+      fallbackRelays: relays,
+    );
+
     var recipientAccepted = 0;
     var selfAccepted = 0;
 
     for (final wrap in wraps) {
-      String? addressedTo;
-      for (final tag in wrap.tags) {
-        if (tag.length >= 2 && tag[0] == 'p') {
-          addressedTo = tag[1].toLowerCase();
-          break;
-        }
-      }
+      final addressedTo = _addressedPubkey(wrap);
+      final targets = addressedTo == partner ? partnerDmRelays : relays;
 
-      final result = await relayService.publishEvent(wrap, relays);
+      final result = await relayService.publishEvent(wrap, targets);
       final accepted = result.values.where((value) => value == 'ok').length;
 
       if (addressedTo == partner) {
@@ -217,8 +219,43 @@ class MessageService {
     return SendResult(
       recipientAccepted: recipientAccepted,
       selfAccepted: selfAccepted,
-      relaysTried: relays.length,
+      relaysTried: partnerDmRelays.length,
     );
+  }
+
+  Future<List<String>> _fetchPartnerDmRelays({
+    required String partnerPubkey,
+    required List<String> fallbackRelays,
+  }) async {
+    try {
+      final query = await relayService.queryEvents(
+        {
+          'kinds': [kDmRelayListKind],
+          'authors': [partnerPubkey],
+          'limit': 1,
+        },
+        fallbackRelays,
+      );
+      if (!query.reachedRelay || query.events.isEmpty) {
+        return fallbackRelays;
+      }
+
+      final events = query.events.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final parsed = parseDmRelayList(events.first);
+      return parsed.isEmpty ? fallbackRelays : parsed;
+    } catch (_) {
+      return fallbackRelays;
+    }
+  }
+
+  String? _addressedPubkey(NostrEvent wrap) {
+    for (final tag in wrap.tags) {
+      if (tag.length >= 2 && tag[0] == 'p') {
+        return tag[1].toLowerCase();
+      }
+    }
+    return null;
   }
 }
 
