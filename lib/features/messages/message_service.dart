@@ -64,6 +64,9 @@ class MessageService {
   }) async {
     if (pubkey.isEmpty || relays.isEmpty) return const [];
 
+    final ownDmRelays = await fetchDmRelayList(pubkey, relays);
+    final queryRelays = <String>{...relays, ...ownDmRelays}.toList();
+
     final allWraps = <NostrEvent>[];
     var until = (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 1;
 
@@ -77,7 +80,7 @@ class MessageService {
         'until': until,
       };
 
-      final query = await relayService.queryEvents(filter, relays);
+      final query = await relayService.queryEvents(filter, queryRelays);
       if (!query.reachedRelay) break;
 
       final events = query.events;
@@ -163,6 +166,74 @@ class MessageService {
     return conversations;
   }
 
+  /// Fetches the newest verified kind 10050 DM relay list for [pubkey].
+  /// Returns an empty list when none is published or no relay answers.
+  Future<List<String>> fetchDmRelayList(
+    String pubkey,
+    List<String> relays,
+  ) async {
+    try {
+      final query = await relayService.queryEvents(
+        {
+          'kinds': [kDmRelayListKind],
+          'authors': [pubkey.toLowerCase()],
+          'limit': 1,
+        },
+        relays,
+      );
+      if (!query.reachedRelay || query.events.isEmpty) return const [];
+
+      final events = query.events.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return parseDmRelayList(events.first);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Signs and publishes our own kind 10050 DM relay list.
+  /// Returns relay URL -> status (`ok`, `rejected: ...`, `timeout`, ...).
+  Future<Map<String, String>> publishDmRelayList({
+    required List<String> dmRelays,
+    required List<String> publishRelays,
+  }) async {
+    final me = await identityService.currentIdentity();
+    if (me == null) {
+      throw StateError('Connect a key in Profile to publish a DM relay list.');
+    }
+    if (publishRelays.isEmpty) {
+      throw StateError('No relays are configured.');
+    }
+
+    final cleaned = <String>[];
+    final seen = <String>{};
+    for (final raw in dmRelays) {
+      final value = raw.trim();
+      if (value.isEmpty) continue;
+      final uri = Uri.tryParse(value);
+      if (uri == null ||
+          uri.scheme.toLowerCase() != 'wss' ||
+          !uri.hasAuthority ||
+          uri.host.isEmpty ||
+          uri.userInfo.isNotEmpty) {
+        throw FormatException('Invalid DM relay (must be wss://...): $value');
+      }
+      if (seen.add(value)) cleaned.add(value);
+    }
+    if (cleaned.isEmpty) {
+      throw const FormatException('Choose at least one DM relay.');
+    }
+
+    final event = await identityService.signEvent(
+      kind: kDmRelayListKind,
+      content: '',
+      tags: [
+        for (final relay in cleaned) ['relay', relay],
+      ],
+    );
+    return relayService.publishEvent(event, publishRelays);
+  }
+
   /// Wraps and publishes one message: a copy for [partnerPubkey] and a copy
   /// for the sender, so the message appears in both inboxes.
   ///
@@ -194,8 +265,12 @@ class MessageService {
     final me = senderPubkey.toLowerCase();
     final partner = partnerPubkey.toLowerCase();
 
-    final partnerDmRelays = await _fetchPartnerDmRelays(
-      partnerPubkey: partner,
+    final partnerDmRelays = await _fetchDmRelaysFor(
+      pubkey: partner,
+      fallbackRelays: relays,
+    );
+    final ownDmRelays = await _fetchDmRelaysFor(
+      pubkey: me,
       fallbackRelays: relays,
     );
 
@@ -204,7 +279,7 @@ class MessageService {
 
     for (final wrap in wraps) {
       final addressedTo = _addressedPubkey(wrap);
-      final targets = addressedTo == partner ? partnerDmRelays : relays;
+      final targets = addressedTo == partner ? partnerDmRelays : ownDmRelays;
 
       final result = await relayService.publishEvent(wrap, targets);
       final accepted = result.values.where((value) => value == 'ok').length;
@@ -223,15 +298,15 @@ class MessageService {
     );
   }
 
-  Future<List<String>> _fetchPartnerDmRelays({
-    required String partnerPubkey,
+  Future<List<String>> _fetchDmRelaysFor({
+    required String pubkey,
     required List<String> fallbackRelays,
   }) async {
     try {
       final query = await relayService.queryEvents(
         {
           'kinds': [kDmRelayListKind],
-          'authors': [partnerPubkey],
+          'authors': [pubkey],
           'limit': 1,
         },
         fallbackRelays,

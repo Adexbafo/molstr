@@ -14,7 +14,8 @@ class SettingsPage extends StatefulWidget {
     required this.onResetRelays,
     required this.loadImages,
     required this.onLoadImagesChanged,
-    this.onOpenTools,
+    required this.onOpenTools,
+    required this.onOpenDmRelays,
   });
 
   final MolStrPreset preset;
@@ -28,6 +29,7 @@ class SettingsPage extends StatefulWidget {
   final bool loadImages;
   final Future<void> Function(bool) onLoadImagesChanged;
   final VoidCallback? onOpenTools;
+  final VoidCallback? onOpenDmRelays;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -153,6 +155,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 'Manage image/NIP-05 caches and test relay response speeds'),
             trailing: const Icon(Icons.chevron_right),
             onTap: widget.onOpenTools,
+          ),
+        ),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.mail_outline),
+            title: const Text('DM relays (NIP-17)'),
+            subtitle: const Text(
+              'Choose where others send your private messages',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: widget.onOpenDmRelays,
           ),
         ),
         const SizedBox(height: 16),

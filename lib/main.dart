@@ -17,6 +17,7 @@ import 'features/tools/tools_page.dart';
 import 'ui/widgets/account_switcher_sheet.dart';
 import 'features/notifications/notifications_page.dart';
 import 'features/messages/messages_page.dart';
+import 'features/settings/dm_relays_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -201,6 +202,18 @@ class _MolStrShellState extends State<MolStrShell> {
           relayService: widget.relayService,
           relays: widget.relays,
           preferences: widget.preferences,
+        ),
+      ),
+    );
+  }
+
+  void _openDmRelays() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DmRelaysPage(
+          identityService: _identityService,
+          relayService: widget.relayService,
+          selectedRelays: widget.relays,
         ),
       ),
     );
@@ -397,6 +410,7 @@ class _MolStrShellState extends State<MolStrShell> {
           onRemoveRelay: widget.onRemoveRelay,
           onResetRelays: widget.onResetRelays,
           onOpenTools: _openTools,
+          onOpenDmRelays: _openDmRelays,
         ),
       ],
     );
