@@ -16,6 +16,7 @@ import 'core/nostr/interactions.dart';
 import 'features/tools/tools_page.dart';
 import 'ui/widgets/account_switcher_sheet.dart';
 import 'features/notifications/notifications_page.dart';
+import 'features/messages/messages_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -171,6 +172,7 @@ class _MolStrShellState extends State<MolStrShell> {
     'Home',
     'Games',
     'Notifications',
+    'Messages',
     'Wallet',
     'Profile',
     'Settings',
@@ -179,6 +181,7 @@ class _MolStrShellState extends State<MolStrShell> {
     Icons.home_outlined,
     Icons.sports_esports_outlined,
     Icons.notifications_outlined,
+    Icons.mail_outline,
     Icons.account_balance_wallet_outlined,
     Icons.person_outline,
     Icons.settings_outlined,
@@ -366,6 +369,14 @@ class _MolStrShellState extends State<MolStrShell> {
         const Center(child: Text('Nostr games showcase: coming next.')),
         NotificationsPage(
           key: ValueKey(_identity?.pubkey ?? 'signed-out'),
+          relayService: widget.relayService,
+          relays: widget.relays,
+          pubkey: _identity?.pubkey,
+          loadImages: widget.loadImages,
+        ),
+        MessagesPage(
+          key: ValueKey(_identity?.pubkey ?? 'signed-out'),
+          identityService: _identityService,
           relayService: widget.relayService,
           relays: widget.relays,
           pubkey: _identity?.pubkey,

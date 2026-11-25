@@ -139,6 +139,21 @@ class IdentityService {
     return identity;
   }
 
+  /// Returns the hex private key for the active account, or null.
+  /// Used only for NIP-44 decryption; the value is never logged or cached.
+  Future<String?> currentNsecHex() async {
+    final active = await currentIdentity();
+    if (active == null) return null;
+    final nsec = await _storage.read(key: '$_nsecPrefix${active.pubkey}');
+    if (nsec == null || nsec.isEmpty) return null;
+    return Nip19.hexFromNsec(nsec);
+  }
+
+  Future<String?> currentPublicKeyHex() async {
+    final active = await currentIdentity();
+    return active?.pubkey;
+  }
+
   Future<void> signOut() async {
     await _storage.delete(key: _activePubkeyStorageKey);
   }
