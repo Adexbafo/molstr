@@ -1,5 +1,4 @@
-import 'dart:convert';
-
+import '../payments/zap_receipt.dart';
 import 'nostr_event.dart';
 
 class NoteEngagement {
@@ -47,36 +46,8 @@ class NoteInteractions {
       );
 }
 
-/// Extracts amount in millisatoshis from a kind 9735 zap receipt.
 int parseZapReceiptAmountMsats(NostrEvent event) {
-  if (event.kind != 9735) return 0;
-
-  // 1. Standard NIP-57: parse kind 9734 zap request inside 'description' tag
-  for (final tag in event.tags) {
-    if (tag.length >= 2 && tag[0] == 'description') {
-      try {
-        final decoded = jsonDecode(tag[1]);
-        if (decoded is Map<String, dynamic> && decoded['tags'] is List) {
-          for (final t in decoded['tags']) {
-            if (t is List && t.length >= 2 && t[0] == 'amount') {
-              final msats = int.tryParse(t[1].toString());
-              if (msats != null && msats > 0) return msats;
-            }
-          }
-        }
-      } catch (_) {}
-    }
-  }
-
-  // 2. Fallback: direct amount tag if relay or node attached it
-  for (final tag in event.tags) {
-    if (tag.length >= 2 && tag[0] == 'amount') {
-      final msats = int.tryParse(tag[1]);
-      if (msats != null && msats > 0) return msats;
-    }
-  }
-
-  return 0;
+  return validateZapReceipt(event)?.amountMsats ?? 0;
 }
 
 String formatSats(int sats) {
@@ -91,8 +62,6 @@ String formatSats(int sats) {
   return '$sats';
 }
 
-/// [verifiedEvents] must contain events whose IDs and signatures have
-/// already been checked. Counts are observations, not global totals.
 Map<String, NoteEngagement> tallyNoteEngagement({
   required Iterable<String> noteIds,
   required Iterable<NostrEvent> verifiedEvents,
@@ -146,11 +115,12 @@ Map<String, NoteEngagement> tallyNoteEngagement({
         repostAuthors[targetId]!.add(event.pubkey);
       }
     } else if (event.kind == 9735) {
-      final targetId = _lastEventReference(event.tags);
-      if (targetId != null && ids.contains(targetId)) {
-        if (zapReceipts[targetId]!.add(event.id)) {
-          final msats = parseZapReceiptAmountMsats(event);
-          zapSatsTotal[targetId] = zapSatsTotal[targetId]! + (msats ~/ 1000);
+      final zap = validateZapReceipt(event);
+      final target = zap?.eventId;
+      if (target != null && ids.contains(target)) {
+        if (zapReceipts[target]!.add(event.id)) {
+          zapSatsTotal[target] =
+              zapSatsTotal[target]! + (zap!.amountMsats ~/ 1000);
         }
       }
     }
@@ -168,7 +138,6 @@ Map<String, NoteEngagement> tallyNoteEngagement({
   };
 }
 
-/// Groups verified interactions for a single note [targetId].
 NoteInteractions buildNoteInteractions({
   required String targetId,
   required Iterable<NostrEvent> verifiedEvents,
@@ -217,7 +186,8 @@ NoteInteractions buildNoteInteractions({
         repostsByAuthor[event.pubkey] = event;
       }
     } else if (event.kind == 9735) {
-      if (_lastEventReference(event.tags) == targetId) {
+      final zap = validateZapReceipt(event);
+      if (zap?.eventId == targetId) {
         zapsById.putIfAbsent(event.id, () => event);
       }
     }

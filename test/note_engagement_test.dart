@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:molstr/core/nostr/note_engagement.dart';
 import 'package:molstr/core/nostr/nostr_event.dart';
@@ -148,6 +149,17 @@ void main() {
 
   test('parses zap receipt amount and sums zaps per note', () {
     final target = signed('11', 1, 'Zapped note', 1700000000);
+    final zapRequest = signed(
+      '88',
+      9734,
+      'Great post!',
+      1700000005,
+      tags: [
+        ['e', target.id],
+        ['p', target.pubkey],
+        ['amount', '21000'],
+      ],
+    );
     final zapReceipt = signed(
       '99',
       9735,
@@ -156,7 +168,7 @@ void main() {
       tags: [
         ['e', target.id],
         ['p', target.pubkey],
-        ['amount', '21000'],
+        ['description', jsonEncode(zapRequest.toJson())],
       ],
     );
 

@@ -63,14 +63,18 @@ class _UserProfilePageState extends State<UserProfilePage> {
       limit: 30,
       authors: [widget.pubkey],
     );
+
     var following = _following;
     if (me != null && me.pubkey != widget.pubkey) {
-      await _followService.syncFollows(
+      final state = await _followService.syncFollows(
         me.pubkey,
         widget.interactions.relays,
       );
-      following = _followService.isFollowing(me.pubkey, widget.pubkey);
+      if (state != null) {
+        following = state.contains(widget.pubkey.toLowerCase());
+      }
     }
+
     if (!mounted) return;
     setState(() {
       _me = me;
@@ -81,24 +85,39 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   Future<void> _toggleFollow() async {
-    if (_followBusy || _me == null) {
-      if (_me == null) _message('Connect a key in Profile to follow.');
+    if (_followBusy) return;
+    if (_me == null) {
+      _message('Connect a key in Profile to follow.');
       return;
     }
+
     setState(() => _followBusy = true);
-    final ok = await _followService.setFollow(
+    final result = await _followService.setFollow(
       target: widget.pubkey,
       follow: !_following,
       relays: widget.interactions.relays,
     );
     if (!mounted) return;
+
     setState(() {
       _followBusy = false;
-      if (ok) _following = !_following;
+      if (result == FollowUpdateResult.published) {
+        _following = !_following;
+      }
     });
-    _message(ok
-        ? (_following ? 'Following.' : 'Unfollowed.')
-        : 'No relay accepted the change.');
+
+    switch (result) {
+      case FollowUpdateResult.published:
+        _message(_following ? 'Following.' : 'Unfollowed.');
+      case FollowUpdateResult.noIdentity:
+        _message('Connect a key in Profile to follow.');
+      case FollowUpdateResult.unknownState:
+        _message(
+          'Some relays did not respond, so your follow list was not changed.',
+        );
+      case FollowUpdateResult.rejected:
+        _message('No relay accepted the change.');
+    }
   }
 
   @override
