@@ -17,6 +17,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  bech32:
+    dependency: transitive
+    description:
+      name: bech32
+      sha256: "156cbace936f7720c79a79d16a03efad343b1ef17106716e04b8b8e39f99f7f7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.2"
+  bip32_keys:
+    dependency: transitive
+    description:
+      name: bip32_keys
+      sha256: "40f3bcdbb6dac449d95405d58aa203706a917a27eca76cea10b54715aebd53c6"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.1.4"
   bip340:
     dependency: "direct main"
     description:
@@ -25,6 +41,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.1"
+  bip39_mnemonic:
+    dependency: transitive
+    description:
+      name: bip39_mnemonic
+      sha256: "0fe4ac6c9f2e5b3fb65783371c806007acbcfb66590f4121f577adf5e4523f96"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.0"
   boolean_selector:
     dependency: transitive
     description:
@@ -33,6 +57,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  bs58check:
+    dependency: transitive
+    description:
+      name: bs58check
+      sha256: c4a164d42b25c2f6bc88a8beccb9fc7d01440f3c60ba23663a20a70faf484ea9
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.2"
+  cbor:
+    dependency: transitive
+    description:
+      name: cbor
+      sha256: "2c5c37650f0a2d25149f03e748ab7b2857787bde338f95fe947738b80d713da2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.5.1"
   characters:
     dependency: transitive
     description:
@@ -89,6 +129,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.8"
+  cryptography:
+    dependency: transitive
+    description:
+      name: cryptography
+      sha256: "3eda3029d34ec9095a27a198ac9785630fe525c0eb6a49f3d575272f8e792ef0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.9.0"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -113,6 +161,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.15"
+  elliptic:
+    dependency: transitive
+    description:
+      name: elliptic
+      sha256: "67931d408faa353bdebac9f7a1df0c3f6f828f4e8439cdf084573cd1601a2f4b"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.12"
+  equatable:
+    dependency: transitive
+    description:
+      name: equatable
+      sha256: "3bce007a596ff8b3119c45d68aaef631272537c03d30e5d4534dd24bf4c5eaa2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.0"
   fake_async:
     dependency: transitive
     description:
@@ -261,6 +325,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "14.8.1"
+  hex:
+    dependency: transitive
+    description:
+      name: hex
+      sha256: "4e7cd54e4b59ba026432a6be2dd9d96e4c5205725194997193bf871703b82c4a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.0"
   hooks:
     dependency: transitive
     description:
@@ -285,6 +357,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  idb_shim:
+    dependency: transitive
+    description:
+      name: idb_shim
+      sha256: "507d8f3154fa4e41165941c5aa8509c6bf155bb30f76ba25a00d1e7ba1dd64c9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.11.3"
   intl:
     dependency: transitive
     description:
@@ -405,6 +485,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.18.3"
+  native_toolchain_rust:
+    dependency: transitive
+    description:
+      name: native_toolchain_rust
+      sha256: faa57d2258a3b0fd2a634054f54e4496c9fcbd971977e7d2b7e6916d56892857
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.4+0"
+  ndk:
+    dependency: "direct main"
+    description:
+      name: ndk
+      sha256: "446c29cfe0e5e8ac66cc047c4b2977b08bfa692c2f1018bafbe4b77d5973dfaa"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.10.1"
   objective_c:
     dependency: transitive
     description:
@@ -557,6 +653,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.5.0"
+  rxdart:
+    dependency: transitive
+    description:
+      name: rxdart
+      sha256: "5c3004a4a8dbb94bd4bf5412a4def4acdaa12e12f269737a5751369e12d1a962"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.28.0"
+  sembast:
+    dependency: transitive
+    description:
+      name: sembast
+      sha256: "4f71f8c95105918fa207065429c913f38d0fb05fec9f3a745bbf4c113f5d482b"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.10.1"
+  sembast_web:
+    dependency: transitive
+    description:
+      name: sembast_web
+      sha256: "46e3a5512d0e53f5a01d15b0ba199260273de7b00d646d6c7012ef999a5201e2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.7"
   shared_preferences:
     dependency: "direct main"
     description:
@@ -658,6 +778,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  synchronized:
+    dependency: transitive
+    description:
+      name: synchronized
+      sha256: a77637ebe1460f3b48cac89a790d2eb634f0a8593cab0d3f340c6db174ba9b94
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.6.1+1"
   term_glyph:
     dependency: transitive
     description:
@@ -674,6 +802,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.12"
+  toml:
+    dependency: transitive
+    description:
+      name: toml
+      sha256: "35a35f782228656a2af31e8c73d1353cc4ef3d683fd68af1111b44631879c05e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.18.0"
   typed_data:
     dependency: transitive
     description:
@@ -682,6 +818,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  unorm_dart:
+    dependency: transitive
+    description:
+      name: unorm_dart
+      sha256: b4f4d2aff27d65a5fc37f400d4c09e55d7535359315acbe3b895a9add4de3a23
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.3"
   url_launcher:
     dependency: "direct main"
     description:
@@ -842,6 +986,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.1"
+  xxh3:
+    dependency: transitive
+    description:
+      name: xxh3
+      sha256: "399a0438f5d426785723c99da6b16e136f4953fb1e9db0bf270bd41dd4619916"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.0"
   yaml:
     dependency: transitive
     description:

@@ -22,6 +22,7 @@ dependencies:
   bip340: ^0.3.1
   crypto: ^3.0.8
   file_picker: ^11.0.3
+  ndk: ^0.10.1
   
 
 dev_dependencies:
