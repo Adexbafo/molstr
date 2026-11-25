@@ -7,9 +7,42 @@ import '../../core/nostr/private_messages.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart' show formatTimestamp;
 import '../../ui/widgets/molstr_avatar.dart';
-import '../profile/user_profile_page.dart';
-import '../../core/nostr/interactions.dart';
+import 'chat_page.dart';
 import 'message_service.dart';
+
+/// Turns what the user typed into a lowercase hex public key.
+///
+/// Accepts an npub (with or without a "nostr:" prefix) or a 64-character
+/// hex key. Throws [FormatException] with a message that is safe to show.
+String parseRecipientPubkey(String input) {
+  var value = input.trim();
+  if (value.toLowerCase().startsWith('nostr:')) {
+    value = value.substring(6);
+  }
+  final lower = value.toLowerCase();
+
+  if (lower.startsWith('nsec')) {
+    throw const FormatException(
+      'That is a private key. Never paste an nsec here.',
+    );
+  }
+
+  if (lower.startsWith('npub1')) {
+    try {
+      return Nip19.hexFromNpub(lower).toLowerCase();
+    } catch (_) {
+      throw const FormatException(
+        'That npub is not valid. Check that it was copied completely.',
+      );
+    }
+  }
+
+  if (RegExp(r'^[0-9a-f]{64}$').hasMatch(lower)) {
+    return lower;
+  }
+
+  throw const FormatException('Enter an npub or a 64-character hex key.');
+}
 
 class MessagesPage extends StatefulWidget {
   const MessagesPage({
@@ -36,6 +69,7 @@ class _MessagesPageState extends State<MessagesPage> {
   List<Conversation> _conversations = const [];
   Map<String, ProfileMetadata> _profiles = const {};
   String _status = '';
+  String? _error;
   bool _loading = false;
   bool _loadedOnce = false;
 
@@ -50,10 +84,18 @@ class _MessagesPageState extends State<MessagesPage> {
 
   Future<void> _load() async {
     final pubkey = widget.pubkey;
-    if (pubkey == null || widget.relays.isEmpty) return;
+    if (pubkey == null) return;
+
+    if (widget.relays.isEmpty) {
+      setState(() {
+        _error = 'No relays are configured. Add one in Settings.';
+      });
+      return;
+    }
 
     setState(() {
       _loading = true;
+      _error = null;
       _status = 'Starting…';
     });
 
@@ -68,25 +110,28 @@ class _MessagesPageState extends State<MessagesPage> {
 
       if (!mounted) return;
 
-      // Fetch the other parties' profile metadata.
-      final authors = <String>{};
+      final partners = <String>{};
       for (final message in messages) {
         final partner = message.partnerFor(pubkey);
-        if (partner != null) authors.add(partner);
+        if (partner != null) partners.add(partner);
       }
 
       final profiles = <String, ProfileMetadata>{};
-      if (authors.isNotEmpty) {
+      if (partners.isNotEmpty) {
         final query = await widget.relayService.queryEvents(
           {
             'kinds': [0],
-            'authors': authors.toList(),
+            'authors': partners.toList(),
           },
           widget.relays,
         );
         for (final event in query.events) {
           final profile = ProfileMetadata.fromKind0(event);
-          if (profile != null) profiles[profile.pubkey] = profile;
+          if (profile == null) continue;
+          final existing = profiles[profile.pubkey];
+          if (existing == null || profile.createdAt > existing.createdAt) {
+            profiles[profile.pubkey] = profile;
+          }
         }
       }
 
@@ -96,13 +141,15 @@ class _MessagesPageState extends State<MessagesPage> {
         _profiles = profiles;
         _loading = false;
         _loadedOnce = true;
+        _status = '';
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _loadedOnce = true;
-        _status = 'Could not load messages: $error';
+        _status = '';
+        _error = 'Could not load messages. Check your connection and retry.';
       });
     }
   }
@@ -115,20 +162,36 @@ class _MessagesPageState extends State<MessagesPage> {
     return '$sender: $trimmed';
   }
 
-  void _openConversation(Conversation conversation) {
-    // ChatPage arrives in slice 3. For now, the list is the full feature:
-    // tapping opens the partner's profile so you can follow / view them.
-    final interactions = InteractionsScope.of(context);
-    if (interactions == null) return;
-    Navigator.of(context).push(
+  void _openChat(String partnerPubkey) {
+    Navigator.of(context)
+        .push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => UserProfilePage(
-          pubkey: conversation.partnerPubkey,
-          interactions: interactions,
+        builder: (_) => ChatPage(
+          partnerPubkey: partnerPubkey,
+          identityService: widget.identityService,
+          relayService: widget.relayService,
+          relays: widget.relays,
           loadImages: widget.loadImages,
+          initialProfile: _profiles[partnerPubkey],
         ),
       ),
+    )
+        .then((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Future<void> _startNewMessage() async {
+    final me = widget.pubkey;
+    if (me == null) return;
+
+    final partner = await showDialog<String>(
+      context: context,
+      builder: (_) => _NewMessageDialog(myPubkey: me),
     );
+
+    if (partner == null || !mounted) return;
+    _openChat(partner);
   }
 
   @override
@@ -138,45 +201,63 @@ class _MessagesPageState extends State<MessagesPage> {
 
     if (pubkey == null) {
       return const Center(
-        child: Text('Connect a key to read private messages.'),
+        child: Text('Connect a key in Profile to use private messages.'),
       );
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(
-                child: Text(
-                  'Private messages observed on your selected relays.',
-                ),
+              const Text(
+                'Private messages observed on your selected relays.',
               ),
-              FilledButton.icon(
-                onPressed: _loading ? null : _load,
-                icon: _loading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh),
-                label: Text(_loading ? 'Loading…' : 'Load messages'),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _startNewMessage,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('New message'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _loading ? null : _load,
+                    icon: _loading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(_loading ? 'Loading…' : 'Load messages'),
+                  ),
+                ],
               ),
+              if (_loading && _status.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(_status, style: textTheme.bodySmall),
+              ],
             ],
           ),
         ),
-        if (_status.isNotEmpty && _loading)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(_status, style: textTheme.bodySmall),
-          ),
         const Divider(height: 1),
-        Expanded(
-          child: _buildBody(textTheme, pubkey),
-        ),
+        Expanded(child: _buildBody(textTheme, pubkey)),
       ],
+    );
+  }
+
+  Widget _centered(String text) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(text, textAlign: TextAlign.center),
+      ),
     );
   }
 
@@ -185,16 +266,18 @@ class _MessagesPageState extends State<MessagesPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_conversations.isEmpty && _loadedOnce) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'No private messages found on your relays yet.\n'
-            'Chat pages arrive next; messages are already being decrypted.',
-            textAlign: TextAlign.center,
-          ),
-        ),
+    final error = _error;
+    if (error != null && _conversations.isEmpty) {
+      return _centered(error);
+    }
+
+    if (_conversations.isEmpty) {
+      return _centered(
+        _loadedOnce
+            ? 'No private messages found on your relays yet.\n'
+                'Press "New message" to start a conversation.'
+            : 'Press "Load messages" to check your relays,\n'
+                'or "New message" to start a conversation.',
       );
     }
 
@@ -206,7 +289,6 @@ class _MessagesPageState extends State<MessagesPage> {
         final profile = _profiles[conversation.partnerPubkey];
         final name =
             profile?.bestName ?? shortNpubLabel(conversation.partnerPubkey);
-        final npub = Nip19.npubFromHex(conversation.partnerPubkey);
 
         return ListTile(
           leading: MolStrAvatar(
@@ -224,9 +306,90 @@ class _MessagesPageState extends State<MessagesPage> {
             formatTimestamp(conversation.lastMessage.createdAt),
             style: textTheme.bodySmall,
           ),
-          onTap: () => _openConversation(conversation),
+          onTap: () => _openChat(conversation.partnerPubkey),
         );
       },
+    );
+  }
+}
+
+class _NewMessageDialog extends StatefulWidget {
+  const _NewMessageDialog({required this.myPubkey});
+
+  final String myPubkey;
+
+  @override
+  State<_NewMessageDialog> createState() => _NewMessageDialogState();
+}
+
+class _NewMessageDialogState extends State<_NewMessageDialog> {
+  final _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    try {
+      final pubkey = parseRecipientPubkey(_controller.text);
+      if (pubkey == widget.myPubkey.toLowerCase()) {
+        setState(() {
+          _error = 'That is your own key. Choose someone else.';
+        });
+        return;
+      }
+      Navigator.of(context).pop(pubkey);
+    } on FormatException catch (error) {
+      setState(() => _error = error.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New message'),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Paste the public key (npub) of the person you want to '
+              'message. Check it carefully: MolStr cannot tell whether a '
+              'key belongs to the person you expect.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: 'Recipient npub',
+                hintText: 'npub1…',
+                errorText: _error,
+                errorMaxLines: 2,
+                border: const OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Open chat'),
+        ),
+      ],
     );
   }
 }

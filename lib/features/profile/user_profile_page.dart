@@ -11,6 +11,7 @@ import '../../ui/render/note_card.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
 import '../../ui/widgets/social_counts_line.dart';
+import '../messages/chat_page.dart';
 
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({
@@ -120,6 +121,30 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
   }
 
+  void _openChat() {
+    final me = _me;
+    if (me == null) {
+      _message('Connect a key in Profile to send messages.');
+      return;
+    }
+    Navigator.of(context)
+        .push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ChatPage(
+          partnerPubkey: widget.pubkey.toLowerCase(),
+          identityService: widget.interactions.identityService,
+          relayService: widget.interactions.relayService,
+          relays: widget.interactions.relays,
+          loadImages: widget.loadImages,
+          initialProfile: _result?.profiles[widget.pubkey],
+        ),
+      ),
+    )
+        .then((_) {
+      if (mounted) _load();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -212,38 +237,51 @@ class _UserProfilePageState extends State<UserProfilePage> {
               if (!isOwn)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: _me == null
-                        ? OutlinedButton.icon(
-                            onPressed: () => _message(
-                              'Connect a key in Profile to follow.',
-                            ),
-                            icon: const Icon(Icons.key_outlined),
-                            label: const Text('Connect a key to follow'),
-                          )
-                        : _following
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _me == null
                             ? OutlinedButton.icon(
-                                onPressed: _followBusy ? null : _toggleFollow,
-                                icon: const Icon(Icons.check),
-                                label: Text(
-                                  _followBusy
-                                      ? 'Updating…'
-                                      : 'Following · tap to unfollow',
+                                onPressed: () => _message(
+                                  'Connect a key in Profile to follow.',
                                 ),
+                                icon: const Icon(Icons.key_outlined),
+                                label: const Text('Connect a key to follow'),
                               )
-                            : FilledButton.icon(
-                                onPressed: _followBusy ? null : _toggleFollow,
-                                icon: _followBusy
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
-                                      )
-                                    : const Icon(Icons.person_add),
-                                label: const Text('Follow'),
-                              ),
+                            : _following
+                                ? OutlinedButton.icon(
+                                    onPressed:
+                                        _followBusy ? null : _toggleFollow,
+                                    icon: const Icon(Icons.check),
+                                    label: Text(
+                                      _followBusy
+                                          ? 'Updating…'
+                                          : 'Following · tap to unfollow',
+                                    ),
+                                  )
+                                : FilledButton.icon(
+                                    onPressed:
+                                        _followBusy ? null : _toggleFollow,
+                                    icon: _followBusy
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2),
+                                          )
+                                        : const Icon(Icons.person_add),
+                                    label: const Text('Follow'),
+                                  ),
+                      ),
+                      if (_me != null) ...[
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: _openChat,
+                          icon: const Icon(Icons.mail_outline),
+                          label: const Text('Message'),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               const Divider(),

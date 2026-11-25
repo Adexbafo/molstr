@@ -18,11 +18,30 @@ class Conversation {
   final int messageCount;
 }
 
+class SendResult {
+  const SendResult({
+    required this.recipientAccepted,
+    required this.selfAccepted,
+    required this.relaysTried,
+  });
+
+  /// How many relays accepted the copy addressed to the partner.
+  final int recipientAccepted;
+
+  /// How many relays accepted the copy addressed to us.
+  final int selfAccepted;
+
+  final int relaysTried;
+
+  bool get deliveredToPartner => recipientAccepted > 0;
+  bool get savedForSelf => selfAccepted > 0;
+}
+
 /// A decrypted conversation list.
 ///
-/// The nsec is read from secure storage only inside [decryptMessages].
-/// Relay payloads and decrypted messages are kept separate: relays never see
-/// plaintext, and the nsec never leaves the identity service.
+/// The nsec is read from secure storage only inside [decryptMessages] and
+/// [sendMessage]. Relay payloads and decrypted messages are kept separate:
+/// relays never see plaintext.
 class MessageService {
   MessageService({
     required this.identityService,
@@ -64,8 +83,6 @@ class MessageService {
       if (events.isEmpty) break;
 
       allWraps.addAll(events);
-
-      // Stop if a relay returned fewer than a full page — no older pages exist.
       if (events.length < pageSize) break;
 
       events.sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -88,7 +105,7 @@ class MessageService {
     final myPubkey = await identityService.currentPublicKeyHex();
     if (myPrivateKey == null || myPubkey == null) return const [];
 
-    // Heavy crypto (2 NIP-44 decryptions per wrap) runs off the UI thread.
+    // Heavy crypto (two NIP-44 decryptions per wrap) runs off the UI thread.
     final messages = await compute(
       _decryptBatch,
       _DecryptBatch(
@@ -144,6 +161,65 @@ class MessageService {
     );
     return conversations;
   }
+
+  /// Wraps and publishes one message: a copy for [partnerPubkey] and a copy
+  /// for the sender, so the message appears in both inboxes.
+  ///
+  /// Returns counts of relays that accepted each copy. It does not retry;
+  /// the caller decides what to tell the user.
+  Future<SendResult> sendMessage({
+    required String senderPubkey,
+    required String partnerPubkey,
+    required String content,
+    required List<String> relays,
+  }) async {
+    if (relays.isEmpty) {
+      throw StateError('No relays are configured.');
+    }
+
+    final senderPrivateKey = await identityService.currentNsecHex();
+    if (senderPrivateKey == null) {
+      throw StateError('Connect a key in Profile to send messages.');
+    }
+
+    final wraps = await wrapPrivateMessage(
+      senderPrivateKeyHex: senderPrivateKey,
+      senderPubkey: senderPubkey,
+      recipients: [partnerPubkey],
+      content: content,
+    );
+
+    final me = senderPubkey.toLowerCase();
+    final partner = partnerPubkey.toLowerCase();
+
+    var recipientAccepted = 0;
+    var selfAccepted = 0;
+
+    for (final wrap in wraps) {
+      String? addressedTo;
+      for (final tag in wrap.tags) {
+        if (tag.length >= 2 && tag[0] == 'p') {
+          addressedTo = tag[1].toLowerCase();
+          break;
+        }
+      }
+
+      final result = await relayService.publishEvent(wrap, relays);
+      final accepted = result.values.where((value) => value == 'ok').length;
+
+      if (addressedTo == partner) {
+        recipientAccepted = accepted;
+      } else if (addressedTo == me) {
+        selfAccepted = accepted;
+      }
+    }
+
+    return SendResult(
+      recipientAccepted: recipientAccepted,
+      selfAccepted: selfAccepted,
+      relaysTried: relays.length,
+    );
+  }
 }
 
 class _DecryptBatch {
@@ -176,6 +252,6 @@ Future<List<PrivateMessage>> _decryptBatch(_DecryptBatch batch) async {
 
 /// Convenience for labels: "npub1xyz…abc".
 String shortNpubLabel(String pubkeyHex) {
-  final npub = Nip19.npubFromHex(pubkeyHex);
+  final npub = Nip19.npubFromHex(pubkeyHex.toLowerCase());
   return '${npub.substring(0, 12)}…${npub.substring(npub.length - 6)}';
 }
