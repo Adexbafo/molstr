@@ -411,6 +411,10 @@ class _MolStrShellState extends State<MolStrShell> {
           onResetRelays: widget.onResetRelays,
           onOpenTools: _openTools,
           onOpenDmRelays: _openDmRelays,
+          identityService: _identityService,
+          relayService: widget.relayService,
+          preferences: widget.preferences,
+          selectedRelays: widget.relays,
         ),
       ],
     );

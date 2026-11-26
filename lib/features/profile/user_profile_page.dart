@@ -12,6 +12,7 @@ import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
 import '../../ui/widgets/social_counts_line.dart';
 import '../messages/chat_page.dart';
+import '../../core/nostr/user_relays.dart';
 
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({
@@ -59,8 +60,26 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final me = await widget.interactions.identityService.currentIdentity();
+
+    final relayService = UserRelayService(
+      relayService: widget.interactions.relayService,
+      identityService: widget.interactions.identityService,
+      preferences: widget.interactions.preferences,
+    );
+
+    final userList = await relayService.fetchRelayList(
+      pubkey: widget.pubkey,
+      selectedRelays: widget.interactions.relays,
+    );
+
+    final relaysForReading = <String>{
+      ...widget.interactions.relays,
+      if (userList != null) ...userList.relaysForReading(),
+      ...relayService.loadGlobalRelays(),
+    }.toList();
+
     final result = await widget.interactions.relayService.fetchFeed(
-      widget.interactions.relays,
+      relaysForReading,
       limit: 30,
       authors: [widget.pubkey],
     );
@@ -69,7 +88,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     if (me != null && me.pubkey != widget.pubkey) {
       final state = await _followService.syncFollows(
         me.pubkey,
-        widget.interactions.relays,
+        relaysForReading,
       );
       if (state != null) {
         following = state.contains(widget.pubkey.toLowerCase());

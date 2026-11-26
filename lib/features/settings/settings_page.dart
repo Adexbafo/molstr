@@ -1,3 +1,8 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/nostr/identity_service.dart';
+import '../../core/nostr/relay_service.dart';
+import '../../core/nostr/user_relays.dart';
 import 'package:flutter/material.dart';
 import '../../ui/theme/app_theme.dart';
 
@@ -16,6 +21,10 @@ class SettingsPage extends StatefulWidget {
     required this.onLoadImagesChanged,
     required this.onOpenTools,
     required this.onOpenDmRelays,
+    required this.identityService,
+    required this.relayService,
+    required this.preferences,
+    required this.selectedRelays,
   });
 
   final MolStrPreset preset;
@@ -30,9 +39,250 @@ class SettingsPage extends StatefulWidget {
   final Future<void> Function(bool) onLoadImagesChanged;
   final VoidCallback? onOpenTools;
   final VoidCallback? onOpenDmRelays;
+  final IdentityService identityService;
+  final RelayService relayService;
+  final SharedPreferences preferences;
+  final List<String> selectedRelays;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _GlobalRelaysPage extends StatefulWidget {
+  const _GlobalRelaysPage({
+    required this.service,
+    required this.selectedRelays,
+  });
+
+  final UserRelayService service;
+  final List<String> selectedRelays;
+
+  @override
+  State<_GlobalRelaysPage> createState() => _GlobalRelaysPageState();
+}
+
+class _GlobalRelaysPageState extends State<_GlobalRelaysPage> {
+  late List<String> _relays;
+  final _controller = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _relays = List<String>.from(widget.service.loadGlobalRelays());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    await widget.service.saveGlobalRelays(_relays);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Global relays saved.')),
+    );
+  }
+
+  void _add() {
+    final raw = _controller.text.trim();
+    if (raw.isEmpty) return;
+    try {
+      final normalized = RelayService.normalizeRelayUrl(raw);
+      setState(() {
+        if (!_relays.contains(normalized)) _relays.add(normalized);
+        _controller.clear();
+      });
+    } on FormatException catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Global relays')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: const InputDecoration(
+                    labelText: 'Add wss:// relay',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: _add, child: const Text('Add')),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_relays.isEmpty)
+            const Text('No global relays yet.')
+          else
+            for (final relay in _relays)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.dns_outlined),
+                  title: Text(relay),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => setState(() => _relays.remove(relay)),
+                  ),
+                ),
+              ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _save,
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PublishOwnRelayListPage extends StatefulWidget {
+  const _PublishOwnRelayListPage({
+    required this.service,
+    required this.selectedRelays,
+  });
+
+  final UserRelayService service;
+  final List<String> selectedRelays;
+
+  @override
+  State<_PublishOwnRelayListPage> createState() =>
+      _PublishOwnRelayListPageState();
+}
+
+class _PublishOwnRelayListPageState extends State<_PublishOwnRelayListPage> {
+  final Set<String> _read = {};
+  final Set<String> _write = {};
+  bool _publishing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _read.addAll(widget.selectedRelays);
+    _write.addAll(widget.selectedRelays);
+  }
+
+  Future<void> _publish() async {
+    if (_read.isEmpty && _write.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose at least one relay.')),
+      );
+      return;
+    }
+
+    setState(() => _publishing = true);
+    try {
+      final results = await widget.service.publishOwnRelayList(
+        readRelays: _read.toList(),
+        writeRelays: _write.toList(),
+        publishRelays: widget.selectedRelays,
+      );
+      if (!mounted) return;
+      final ok = results.values.where((v) => v == 'ok').length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok > 0
+                ? 'Relay list published to $ok of ${results.length} relays.'
+                : 'No relay accepted the list.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _publishing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Publish NIP-65 relay list')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          for (final relay in widget.selectedRelays)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(relay),
+                    Row(
+                      children: [
+                        FilterChip(
+                          label: const Text('Read'),
+                          selected: _read.contains(relay),
+                          onSelected: _publishing
+                              ? null
+                              : (value) => setState(() {
+                                    if (value) {
+                                      _read.add(relay);
+                                    } else {
+                                      _read.remove(relay);
+                                    }
+                                  }),
+                        ),
+                        const SizedBox(width: 8),
+                        FilterChip(
+                          label: const Text('Write'),
+                          selected: _write.contains(relay),
+                          onSelected: _publishing
+                              ? null
+                              : (value) => setState(() {
+                                    if (value) {
+                                      _write.add(relay);
+                                    } else {
+                                      _write.remove(relay);
+                                    }
+                                  }),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _publishing ? null : _publish,
+            icon: _publishing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.publish),
+            label: Text(_publishing ? 'Publishing…' : 'Publish'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SettingsPageState extends State<SettingsPage> {
@@ -91,6 +341,63 @@ class _SettingsPageState extends State<SettingsPage> {
                 selected: widget.preset == option,
                 onSelected: (_) => _run(() => widget.onPresetChanged(option)),
               ),
+            const Divider(height: 48),
+            Text('Global relays', style: textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            Text(
+              'Fallback relays used when a specific user has not published a '
+              'NIP-65 relay list. Edit here; they are not used for your own '
+              'live subscriptions.',
+              style: textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.public_outlined),
+                title: const Text('Edit global relays'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _GlobalRelaysPage(
+                        service: UserRelayService(
+                          relayService: widget.relayService,
+                          identityService: widget.identityService,
+                          preferences: widget.preferences,
+                        ),
+                        selectedRelays: widget.selectedRelays,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.cloud_upload_outlined),
+                title: const Text('Publish NIP-65 relay list'),
+                subtitle: const Text(
+                  'Lets other clients know where to send you events and where '
+                  'you publish.',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _PublishOwnRelayListPage(
+                        service: UserRelayService(
+                          relayService: widget.relayService,
+                          identityService: widget.identityService,
+                          preferences: widget.preferences,
+                        ),
+                        selectedRelays: widget.selectedRelays,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 28),
