@@ -378,6 +378,8 @@ class _MolStrShellState extends State<MolStrShell> {
           onOpenRelaySettings: () => setState(() => _index = 5),
           loadImages: widget.loadImages,
           refreshToken: _feedRefreshToken,
+          key: ValueKey(('home', _identity?.pubkey, widget.relays.join('\n'))),
+          viewerPubkey: _identity?.pubkey,
         ),
         const Center(child: Text('Nostr games showcase: coming next.')),
         NotificationsPage(

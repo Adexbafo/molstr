@@ -7,6 +7,7 @@ import '../../core/nostr/relay_service.dart';
 import '../../ui/render/article_card.dart';
 import '../../ui/render/note_card.dart';
 import '../../ui/render/poll_card.dart';
+import '../../core/nostr/feed_curation.dart';
 
 class HomeFeedPage extends StatefulWidget {
   const HomeFeedPage({
@@ -16,6 +17,7 @@ class HomeFeedPage extends StatefulWidget {
     required this.onOpenRelaySettings,
     required this.loadImages,
     this.refreshToken = 0,
+    this.viewerPubkey,
   });
 
   final List<String> relays;
@@ -23,6 +25,7 @@ class HomeFeedPage extends StatefulWidget {
   final VoidCallback onOpenRelaySettings;
   final bool loadImages;
   final int refreshToken;
+  final String? viewerPubkey;
 
   @override
   State<HomeFeedPage> createState() => _HomeFeedPageState();
@@ -35,6 +38,9 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
   bool _loading = false;
   bool _hideReplies = true;
   bool _namedOnly = false;
+  Set<String>? _trustedAuthors;
+  bool _loadingTrust = false;
+  bool _hideRepeats = false;
   String _status = '';
   int _lastRefreshToken = 0;
 
@@ -96,7 +102,48 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
   }
 
   bool _passesNameFilter(FeedResult result, String pubkey) =>
-      !_namedOnly || result.profiles.containsKey(pubkey);
+      (!_namedOnly || result.profiles.containsKey(pubkey)) &&
+      (_trustedAuthors?.contains(pubkey) ?? true);
+
+  Future<void> _enableTrustFilter() async {
+    final viewer = widget.viewerPubkey;
+    if (viewer == null || _loadingTrust) return;
+
+    setState(() => _loadingTrust = true);
+
+    try {
+      final trusted = await loadTrustSet(
+        relayService: widget.relayService,
+        viewer: viewer,
+        relays: widget.relays,
+      );
+      if (!mounted) return;
+
+      if (trusted == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No verified follow list was found on your selected relays. '
+              'The Web of Trust filter stayed off.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() => _trustedAuthors = trusted);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Could not load your Web of Trust. The filter stayed off.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingTrust = false);
+    }
+  }
 
   Widget _connectPrompt(TextTheme textTheme) {
     return Center(
@@ -223,10 +270,13 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
       return _connectionFailed();
     }
 
-    final visibleNotes = result.notes.where((note) {
+    final matchingNotes = result.notes.where((note) {
       if (_hideReplies && note.isReply) return false;
       return _passesNameFilter(result, note.pubkey);
     }).toList();
+
+    final visibleNotes =
+        _hideRepeats ? collapseRepeatedNotes(matchingNotes) : matchingNotes;
 
     final parsedPolls = result.polls
         .map(PollData.fromEvent)
@@ -313,6 +363,28 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
                 selected: _namedOnly,
                 onSelected: (selected) {
                   setState(() => _namedOnly = selected);
+                },
+              ),
+              FilterChip(
+                label: Text(
+                  _loadingTrust ? 'Loading trust list…' : 'Web of Trust only',
+                ),
+                selected: _trustedAuthors != null,
+                onSelected: widget.viewerPubkey == null || _loadingTrust
+                    ? null
+                    : (selected) {
+                        if (selected) {
+                          _enableTrustFilter();
+                        } else {
+                          setState(() => _trustedAuthors = null);
+                        }
+                      },
+              ),
+              FilterChip(
+                label: const Text('Hide repeated notes'),
+                selected: _hideRepeats,
+                onSelected: (selected) {
+                  setState(() => _hideRepeats = selected);
                 },
               ),
               TextButton.icon(
