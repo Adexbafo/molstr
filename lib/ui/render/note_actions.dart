@@ -6,6 +6,7 @@ import '../../core/nostr/nip19.dart';
 import '../../core/nostr/nostr_event.dart';
 import '../../core/nostr/note_engagement.dart';
 import '../../core/payments/monero.dart';
+import '../../core/payments/zap_watch.dart';
 import '../payments/monero_sheet.dart';
 import '../payments/zap_sheet.dart';
 import 'thread_page.dart';
@@ -45,6 +46,14 @@ class _NoteActionBarState extends State<NoteActionBar> {
       _likeDelta = 0;
       _repostDelta = 0;
     }
+  }
+
+  /// The zap total on this card: the engagement count, or a higher total
+  /// that a receipt watch has seen since.
+  int get _zapSatsShown {
+    final fromEngagement = widget.engagement?.zapSats ?? 0;
+    final observed = ZapWatch.instance.observedFor(widget.event.id);
+    return fromEngagement > observed ? fromEngagement : observed;
   }
 
   String _recipientName() {
@@ -226,6 +235,15 @@ class _NoteActionBarState extends State<NoteActionBar> {
     );
   }
 
+  /// Asks every selected relay for the note's current zap total.
+  Future<int> _fetchZapTotal(Interactions interactions, String noteId) async {
+    final result = await interactions.relayService.fetchNoteEngagement(
+      [noteId],
+      interactions.relays,
+    );
+    return result[noteId]?.zapSats ?? 0;
+  }
+
   Future<void> _openZap() async {
     final interactions = InteractionsScope.of(context);
     if (interactions == null || !interactions.canSign) {
@@ -237,15 +255,28 @@ class _NoteActionBarState extends State<NoteActionBar> {
       _message('Author has no Lightning address.');
       return;
     }
+
+    final noteId = widget.event.id;
+    // Read before the sheet opens, so a receipt that arrives while the
+    // sheet is showing still counts as new.
+    final baseline = _zapSatsShown;
+
     await showZapSheet(
       context: context,
       recipientName: _recipientName(),
       recipientLud16: lud16.trim(),
       recipientPubkeyHex: widget.event.pubkey,
-      noteEvent: widget.event.kind == 1 ? widget.event : null,
+      noteEvent: widget.event,
       relays: interactions.relays,
       identityService: interactions.identityService,
       relayService: interactions.relayService,
+    );
+
+    if (!mounted) return;
+    ZapWatch.instance.watch(
+      noteId: noteId,
+      baseline: baseline,
+      fetchTotal: () => _fetchZapTotal(interactions, noteId),
     );
   }
 
@@ -315,22 +346,30 @@ class _NoteActionBarState extends State<NoteActionBar> {
             onTap: _busy ? null : _openRepostOrQuote,
           ),
           _ActionCountButton(
-            tooltip: 'Like (observed on your relays)',
+            tooltip: liked
+                ? 'Liked (observed on your relays)'
+                : 'Like (observed on your relays)',
             icon: liked ? Icons.favorite : Icons.favorite_border,
             count: likeCount,
             color: liked ? accent : null,
             onTap: _busy ? null : _like,
           ),
-          _ActionCountButton(
-            tooltip: 'Zap with Bitcoin Lightning (observed on your relays)',
-            icon: Icons.bolt,
-            label: (engagement != null && engagement.zapSats > 0)
-                ? formatSats(engagement.zapSats)
-                : null,
-            color: (engagement != null && engagement.zapSats > 0)
-                ? Colors.amber
-                : null,
-            onTap: _busy ? null : _openZap,
+          ListenableBuilder(
+            listenable: ZapWatch.instance,
+            builder: (context, _) {
+              final zapSats = _zapSatsShown;
+              final pending = ZapWatch.instance.isPending(widget.event.id);
+              return _ActionCountButton(
+                tooltip: pending
+                    ? 'Checking for the zap receipt…'
+                    : 'Zap with Bitcoin Lightning (observed on your relays)',
+                icon: Icons.bolt,
+                label: zapSats > 0 ? formatSats(zapSats) : null,
+                color: zapSats > 0 ? Colors.amber : null,
+                pending: pending,
+                onTap: _busy ? null : _openZap,
+              );
+            },
           ),
           IconButton(
             tooltip: 'Tip with Monero (private)',
@@ -371,10 +410,11 @@ class _ActionCountButton extends StatelessWidget {
   const _ActionCountButton({
     required this.tooltip,
     required this.icon,
+    required this.onTap,
     this.count,
     this.label,
-    required this.onTap,
     this.color,
+    this.pending = false,
   });
 
   final String tooltip;
@@ -383,11 +423,14 @@ class _ActionCountButton extends StatelessWidget {
   final String? label;
   final VoidCallback? onTap;
   final Color? color;
+  final bool pending;
 
   @override
   Widget build(BuildContext context) {
     final textStyle =
         Theme.of(context).textTheme.bodySmall?.copyWith(color: color);
+    final text = label ?? (count != null ? '$count' : null);
+
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -399,9 +442,17 @@ class _ActionCountButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 18, color: color),
-              if (label != null || count != null) ...[
+              if (pending) ...[
                 const SizedBox(width: 4),
-                Text(label ?? '$count', style: textStyle),
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(strokeWidth: 1.5),
+                ),
+              ],
+              if (text != null) ...[
+                const SizedBox(width: 4),
+                Text(text, style: textStyle),
               ],
             ],
           ),

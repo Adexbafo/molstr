@@ -108,9 +108,10 @@ class _ProfilePageState extends State<ProfilePage>
     if (ids.isEmpty || result.connectedRelays.isEmpty) return;
 
     try {
+      // Ask every selected relay, not only those that answered this load.
       final counts = await widget.relayService.fetchNoteEngagement(
         ids,
-        result.connectedRelays,
+        widget.relays,
       );
 
       if (!mounted || generation != _engagementGeneration) return;

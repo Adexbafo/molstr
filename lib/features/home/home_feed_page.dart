@@ -93,9 +93,11 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
     ];
     if (ids.isEmpty || result.connectedRelays.isEmpty) return;
 
+    // Ask every selected relay, not only the ones that answered this feed
+    // load. A zap receipt can sit on a relay that was slow just now.
     final counts = await widget.relayService.fetchNoteEngagement(
       ids,
-      result.connectedRelays,
+      widget.relays,
     );
     if (!mounted || generation != _engagementGeneration) return;
     setState(() => _engagement = counts);

@@ -223,6 +223,7 @@ class _ThreadPageState extends State<ThreadPage> {
             likes: likes.length,
             reposts: reposts.length,
             quotes: quotes.length,
+            zapSats: data.totalZapSats,
           )
         : null;
 
