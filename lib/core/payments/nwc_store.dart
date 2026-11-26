@@ -1,16 +1,17 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'nwc.dart';
+import 'nwc_cipher.dart';
 
-/// Just the three operations we need from secure storage.
-/// An interface lets us test [NwcStore] without a platform plugin.
 abstract class NwcSecretStorage {
   Future<String?> read();
   Future<void> write(String value);
   Future<void> delete();
+  Future<String?> readMode();
+  Future<void> writeMode(String value);
+  Future<void> deleteMode();
 }
 
-/// Production storage: the OS keychain / Secret Service via flutter_secure_storage.
 class SecureNwcStorage implements NwcSecretStorage {
   SecureNwcStorage({FlutterSecureStorage? storage})
       : _storage = storage ?? const FlutterSecureStorage();
@@ -18,6 +19,7 @@ class SecureNwcStorage implements NwcSecretStorage {
   final FlutterSecureStorage _storage;
 
   static const _uriKey = 'molstr.nwc.uri';
+  static const _encKey = 'molstr.nwc.enc';
 
   @override
   Future<String?> read() => _storage.read(key: _uriKey);
@@ -28,10 +30,18 @@ class SecureNwcStorage implements NwcSecretStorage {
 
   @override
   Future<void> delete() => _storage.delete(key: _uriKey);
+
+  @override
+  Future<String?> readMode() => _storage.read(key: _encKey);
+
+  @override
+  Future<void> writeMode(String value) =>
+      _storage.write(key: _encKey, value: value);
+
+  @override
+  Future<void> deleteMode() => _storage.delete(key: _encKey);
 }
 
-/// Persists the active NWC connection. The secret lives only in secure
-/// storage; invalid stored URIs are dropped rather than crashing the app.
 class NwcStore {
   NwcStore({NwcSecretStorage? secretStorage})
       : _secret = secretStorage ?? SecureNwcStorage();
@@ -39,12 +49,10 @@ class NwcStore {
   final NwcSecretStorage _secret;
 
   Future<void> save(String uri) async {
-    // Validate before storing anything.
     NwcConnection.parse(uri);
     await _secret.write(uri.trim());
   }
 
-  /// Returns null when nothing is stored or the stored URI is invalid.
   Future<NwcConnection?> load() async {
     final uri = await _secret.read();
     if (uri == null || uri.isEmpty) return null;
@@ -58,10 +66,19 @@ class NwcStore {
 
   Future<bool> isConnected() async {
     final uri = await _secret.read();
-    return uri != null && uri.isNotEmpty;
+    return uri != null && uri.isEmpty == false;
   }
 
   Future<void> clear() async {
     await _secret.delete();
+    await _secret.deleteMode();
   }
+
+  Future<NwcEncryption> loadEncryption() async {
+    final v = await _secret.readMode();
+    return NwcEncryption.fromStorage(v);
+  }
+
+  Future<void> saveEncryption(NwcEncryption mode) =>
+      _secret.writeMode(mode.storageValue);
 }
