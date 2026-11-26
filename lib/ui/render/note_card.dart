@@ -12,6 +12,7 @@ import '../widgets/nip05_badge.dart';
 import 'note_actions.dart';
 import 'note_text.dart';
 import 'thread_page.dart';
+import '../../core/nostr/note_pow.dart';
 
 String formatTimestamp(int unixSeconds) {
   final created = DateTime.fromMillisecondsSinceEpoch(unixSeconds * 1000);
@@ -180,6 +181,25 @@ class NoteCard extends StatelessWidget {
                   if (provenance.isNotEmpty) ...[
                     const SizedBox(width: 12),
                     Text(provenance, style: textTheme.bodySmall),
+                  ],
+                  if (powDifficultyFromTags(event.tags) != null) ...[
+                    const SizedBox(width: 12),
+                    Tooltip(
+                      message:
+                          'Proof of work: ${powDifficultyFromTags(event.tags)} '
+                          'bits (NIP-13)',
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.speed, size: 12),
+                          const SizedBox(width: 2),
+                          Text(
+                            '${powDifficultyFromTags(event.tags)}',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ],
               ),

@@ -48,6 +48,17 @@ int leadingZeroBits(String id) {
   return bits;
 }
 
+/// Returns the committed difficulty from a NIP-13 nonce tag, or null.
+int? powDifficultyFromTags(List<List<String>> tags) {
+  for (final tag in tags) {
+    if (tag.length >= 3 && tag[0] == 'nonce') {
+      final bits = int.tryParse(tag[2]);
+      if (bits != null && bits > 0) return bits;
+    }
+  }
+  return null;
+}
+
 Future<MinedNote> mineTextNote({
   required String pubkey,
   required int createdAt,
