@@ -10,6 +10,7 @@ import '../../ui/widgets/molstr_avatar.dart';
 import 'chat_page.dart';
 import 'message_service.dart';
 import 'dart:async';
+import '../../core/nostr/live_subscription.dart';
 
 /// Turns what the user typed into a lowercase hex public key.
 ///
@@ -71,7 +72,8 @@ class _MessagesPageState extends State<MessagesPage> {
   Map<String, ProfileMetadata> _profiles = const {};
   String _status = '';
   String? _error;
-  Timer? _poll;
+  LiveSubscription? _live;
+  Timer? _debounce;
   bool _loading = false;
   bool _loadedOnce = false;
 
@@ -82,14 +84,35 @@ class _MessagesPageState extends State<MessagesPage> {
       identityService: widget.identityService,
       relayService: widget.relayService,
     );
-    _poll = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted && !_loading) _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+    _startLive();
+  }
+
+  void _startLive() {
+    final me = widget.pubkey;
+    if (me == null || widget.relays.isEmpty) return;
+    _live?.close();
+    _live = LiveSubscription(
+      relays: widget.relays,
+      filter: giftWrapLiveFilter(me),
+      onEvent: (_, __) => _scheduleReload(),
+    )..start();
+  }
+
+  /// Several events can arrive together. Reload once, after they settle.
+  void _scheduleReload() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 2), () {
+      if (mounted) _load();
     });
   }
 
-    @override
+  @override
   void dispose() {
-    _poll?.cancel();
+    _debounce?.cancel();
+    _live?.close();
     super.dispose();
   }
 

@@ -9,6 +9,7 @@ import '../../ui/render/note_card.dart' show formatTimestamp, shortNpub;
 import '../../ui/widgets/molstr_avatar.dart';
 import 'message_service.dart';
 import 'dart:async';
+import '../../core/nostr/live_subscription.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({
@@ -36,7 +37,8 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final _controller = TextEditingController();
-  Timer? _poll;
+  LiveSubscription? _live;
+  Timer? _debounce;
   final _scrollController = ScrollController();
 
   late final MessageService _service;
@@ -62,17 +64,33 @@ class _ChatPageState extends State<ChatPage> {
       _loading = false;
     }
     _bootstrap();
-    _poll = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mounted && !_loading && !_sending) _load();
-    });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _live?.close();
     _controller.dispose();
-    _poll?.cancel();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _startLive() {
+    final me = _myPubkey;
+    if (me == null) return;
+    _live?.close();
+    _live = LiveSubscription(
+      relays: widget.relays,
+      filter: giftWrapLiveFilter(me),
+      onEvent: (_, __) => _scheduleReload(),
+    )..start();
+  }
+
+  void _scheduleReload() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 2), () {
+      if (mounted && !_sending) _load();
+    });
   }
 
   Future<void> _bootstrap() async {
@@ -81,6 +99,7 @@ class _ChatPageState extends State<ChatPage> {
     setState(() => _myPubkey = me?.pubkey);
     if (me != null) {
       await _load();
+      _startLive();
     }
   }
 

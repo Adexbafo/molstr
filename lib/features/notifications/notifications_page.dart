@@ -8,6 +8,9 @@ import '../../ui/render/note_card.dart';
 import '../../ui/render/thread_page.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../profile/user_profile_page.dart';
+import 'dart:async';
+
+import '../../core/nostr/live_subscription.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({
@@ -102,6 +105,43 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (tag.length >= 2 && tag.first == 'e') return tag[1];
     }
     return null;
+  }
+
+  LiveSubscription? _live;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+    _startLive();
+  }
+
+  void _startLive() {
+    final me = widget.pubkey;
+    if (me == null || widget.relays.isEmpty) return;
+    _live?.close();
+    _live = LiveSubscription(
+      relays: widget.relays,
+      filter: notificationLiveFilter(me),
+      onEvent: (_, __) => _scheduleReload(),
+    )..start();
+  }
+
+  void _scheduleReload() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 2), () {
+      if (mounted) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _live?.close();
+    super.dispose();
   }
 
   void _open(NostrEvent event) {
