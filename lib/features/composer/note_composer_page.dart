@@ -10,6 +10,7 @@ import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../core/text/hashtags.dart';
 import '../../ui/widgets/emoji_picker.dart';
+import '../../core/nostr/note_pow.dart';
 
 // Poll events: kind 1068, responses kind 1018 (NIP-88).
 const _pollKind = 1068;
@@ -42,6 +43,7 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
   String _mode = 'note'; // 'note' | 'poll' | 'article'
   bool _multipleChoice = false;
   int _pollDurationHours = 24;
+  int _powBits = 0;
   bool _publishing = false;
   bool _attaching = false;
   String _blossomServer = 'https://blossom.primal.net';
@@ -383,11 +385,18 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
     setState(() => _publishing = true);
 
     try {
-      final event = await widget.identityService.signEvent(
-        kind: kind,
-        content: content,
-        tags: tags,
-      );
+      final event = kind == 1 && _powBits > 0
+          ? await widget.identityService.signMinedTextNote(
+              content: content,
+              tags: tags,
+              bits: _powBits,
+            )
+          : await widget.identityService.signEvent(
+              kind: kind,
+              content: content,
+              tags: tags,
+            );
+      if (!mounted) return;
       final results =
           await widget.relayService.publishEvent(event, widget.relays);
       if (!mounted) return;
@@ -435,6 +444,10 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
       } else {
         setState(() => _publishing = false);
       }
+    } on NotePowException catch (error) {
+      if (!mounted) return;
+      setState(() => _publishing = false);
+      _showMessage(error.message);
     } catch (_) {
       if (!mounted) return;
       setState(() => _publishing = false);
@@ -673,6 +686,26 @@ class _NoteComposerPageState extends State<NoteComposerPage> {
               ),
             ],
             const Divider(height: 32),
+            if (_mode == 'note') ...[
+              Text('Proof of work (optional)', style: textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final bits in const [0, 8, 12])
+                    ChoiceChip(
+                      label: Text(bits == 0 ? 'Off' : '$bits bits'),
+                      selected: _powBits == bits,
+                      onSelected: _publishing
+                          ? null
+                          : (selected) {
+                              if (selected) setState(() => _powBits = bits);
+                            },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),

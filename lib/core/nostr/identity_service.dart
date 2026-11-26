@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'nip19.dart';
 import 'nostr_event.dart';
+import 'note_pow.dart';
 
 class Identity {
   const Identity({
@@ -194,6 +195,45 @@ class IdentityService {
       pubkey: publicKeyHex,
       npub: Nip19.npubFromHex(publicKeyHex),
     );
+  }
+
+  Future<NostrEvent> signMinedTextNote({
+    required String content,
+    required List<List<String>> tags,
+    required int bits,
+  }) async {
+    final sender = await currentIdentity();
+    if (sender == null) {
+      throw const NotePowException('Connect a key in Profile first.');
+    }
+
+    final mined = await mineTextNote(
+      pubkey: sender.pubkey,
+      createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      content: content,
+      tags: tags,
+      bits: bits,
+    );
+
+    final key = await currentNsecHex();
+    if (key == null || (await currentIdentity())?.pubkey != sender.pubkey) {
+      throw const NotePowException(
+          'The active account changed. Nothing was sent.');
+    }
+
+    final event = NostrEvent.sign(
+      privateKeyHex: key,
+      kind: 1,
+      content: content,
+      tags: mined.tags,
+      createdAt: mined.createdAt,
+    );
+
+    if (event.pubkey != sender.pubkey || event.id != mined.id) {
+      throw const NotePowException(
+          'Could not sign the mined note. Nothing was sent.');
+    }
+    return event;
   }
 
   Future<NostrEvent> signEvent({
