@@ -8,6 +8,7 @@ import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart' show formatTimestamp, shortNpub;
 import '../../ui/widgets/molstr_avatar.dart';
 import 'message_service.dart';
+import 'dart:async';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({
@@ -35,6 +36,7 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final _controller = TextEditingController();
+  Timer? _poll;
   final _scrollController = ScrollController();
 
   late final MessageService _service;
@@ -60,11 +62,15 @@ class _ChatPageState extends State<ChatPage> {
       _loading = false;
     }
     _bootstrap();
+    _poll = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted && !_loading && !_sending) _load();
+    });
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _poll?.cancel();
     _scrollController.dispose();
     super.dispose();
   }

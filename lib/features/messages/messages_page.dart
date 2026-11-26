@@ -9,6 +9,7 @@ import '../../ui/render/note_card.dart' show formatTimestamp;
 import '../../ui/widgets/molstr_avatar.dart';
 import 'chat_page.dart';
 import 'message_service.dart';
+import 'dart:async';
 
 /// Turns what the user typed into a lowercase hex public key.
 ///
@@ -70,6 +71,7 @@ class _MessagesPageState extends State<MessagesPage> {
   Map<String, ProfileMetadata> _profiles = const {};
   String _status = '';
   String? _error;
+  Timer? _poll;
   bool _loading = false;
   bool _loadedOnce = false;
 
@@ -80,6 +82,15 @@ class _MessagesPageState extends State<MessagesPage> {
       identityService: widget.identityService,
       relayService: widget.relayService,
     );
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && !_loading) _load();
+    });
+  }
+
+    @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -326,9 +337,11 @@ class _NewMessageDialogState extends State<_NewMessageDialog> {
   final _controller = TextEditingController();
   String? _error;
 
+  Timer? _poll;
+
   @override
   void dispose() {
-    _controller.dispose();
+    _poll?.cancel();
     super.dispose();
   }
 

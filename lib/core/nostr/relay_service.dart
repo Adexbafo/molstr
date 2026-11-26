@@ -612,7 +612,7 @@ class RelayService {
     );
   }
 
-    Future<List<Map<String, dynamic>>> _queryRelay(
+  Future<List<Map<String, dynamic>>> _queryRelay(
     String relayUrl,
     Map<String, dynamic> filter, {
     Duration timeout = const Duration(seconds: 4),
