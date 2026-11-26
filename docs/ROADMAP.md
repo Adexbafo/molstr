@@ -1,6 +1,7 @@
 # MolStr roadmap
 
 ## Milestone 1: done
+
 - Multiple accounts, sign-out, keys in secure storage
 - Notes, replies, likes, reposts, quotes, threads, observed counts
 - Polls: create and vote (NIP-88), voter list
@@ -10,13 +11,16 @@
 - Foundations: themes, fonts, logo, wss-only relays, remote-image privacy toggle, diagnostics
 
 ## Milestone 2: done, gate open
+
 - Emoji, image and video attachments
 - Notifications tab
 - Private messages (NIP-17): send, inbox, chat, relay lists (kind 10050)
 - NIP-44 v2 vectors pass (4 vectors)
 - Gate: Amethyst interop, both directions, correct sender
 
+
 ## Milestone 3: next
+
 1. Global relay sets and relay health checks
 2. Mute, block and report (store requirement, not built yet)
 3. Wallet: NWC for Bitcoin, Monero handoff (Wallet tab is a placeholder)
@@ -24,9 +28,11 @@
 5. Games showcase (Games tab is a placeholder)
 
 ## Milestone 4: later
+
 - Tor (SOCKS5) with a user toggle
 - Security and hardening review
 - Store icons and listings
+
 
 ## Known limits
 

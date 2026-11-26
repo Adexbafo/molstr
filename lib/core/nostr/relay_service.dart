@@ -105,7 +105,7 @@ class RelayService {
   Future<Map<String, String>> publishEvent(
     NostrEvent event,
     List<String> relays, {
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = const Duration(seconds: 5),
   }) async {
     final results = <String, String>{};
 
@@ -234,8 +234,8 @@ class RelayService {
           final events = await _queryRelay(
             relayUrl,
             filter,
-            timeout: const Duration(seconds: 6),
-          ).timeout(const Duration(seconds: 12));
+            timeout: const Duration(seconds: 4),
+          ).timeout(const Duration(seconds: 8));
 
           connectedRelays.add(relayUrl);
           rawNotes.addAll(events.map((e) => _RawEvent(e, relayUrl)));
@@ -366,8 +366,8 @@ class RelayService {
             '#e': [eventId],
             'limit': 100,
           },
-          timeout: const Duration(seconds: 6),
-        ).timeout(const Duration(seconds: 12));
+          timeout: const Duration(seconds: 4),
+        ).timeout(const Duration(seconds: 8));
         connected.add(relayUrl);
         raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
       } catch (error) {
@@ -431,7 +431,7 @@ class RelayService {
             },
           ],
           timeout: const Duration(seconds: 5),
-        ).timeout(const Duration(seconds: 9));
+        ).timeout(const Duration(seconds: 6));
 
         raw.addAll(events.map((event) => _RawEvent(event, relayUrl)));
         respondingRelays++;
@@ -538,7 +538,7 @@ class RelayService {
         final events = await _queryRelay(
           relayUrl,
           filter,
-          timeout: const Duration(seconds: 6),
+          timeout: const Duration(seconds: 4),
         ).timeout(const Duration(seconds: 12));
         raw.addAll(events.map((event) => _RawEvent(event, relayUrl)));
         responding++;
@@ -570,8 +570,8 @@ class RelayService {
         final events = await _queryRelay(
           relayUrl,
           filter,
-          timeout: const Duration(seconds: 6),
-        ).timeout(const Duration(seconds: 12));
+          timeout: const Duration(seconds: 4),
+        ).timeout(const Duration(seconds: 8));
         raw.addAll(events.map((e) => _RawEvent(e, relayUrl)));
       } catch (error) {
         debugPrint('MolStr: query on $relayUrl failed: $error');
@@ -612,10 +612,10 @@ class RelayService {
     );
   }
 
-  Future<List<Map<String, dynamic>>> _queryRelay(
+    Future<List<Map<String, dynamic>>> _queryRelay(
     String relayUrl,
     Map<String, dynamic> filter, {
-    required Duration timeout,
+    Duration timeout = const Duration(seconds: 4),
   }) {
     return _queryRelayFilters(relayUrl, [filter], timeout: timeout);
   }
