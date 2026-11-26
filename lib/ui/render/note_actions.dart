@@ -245,6 +245,7 @@ class _NoteActionBarState extends State<NoteActionBar> {
       noteEvent: widget.event.kind == 1 ? widget.event : null,
       relays: interactions.relays,
       identityService: interactions.identityService,
+      relayService: interactions.relayService,
     );
   }
 

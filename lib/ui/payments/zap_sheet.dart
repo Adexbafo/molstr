@@ -5,7 +5,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/relay_service.dart';
 import '../../core/payments/lnurl.dart';
+import '../../core/payments/nwc.dart';
+import '../../core/payments/nwc_cipher.dart';
+import '../../core/payments/nwc_store.dart';
 import '../../core/payments/zap_service.dart';
 
 Future<void> showZapSheet({
@@ -16,6 +20,7 @@ Future<void> showZapSheet({
   required NostrEvent? noteEvent,
   required List<String> relays,
   required IdentityService identityService,
+  required RelayService relayService,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -28,6 +33,7 @@ Future<void> showZapSheet({
       noteEvent: noteEvent,
       relays: relays,
       identityService: identityService,
+      relayService: relayService,
     ),
   );
 }
@@ -41,6 +47,7 @@ class ZapSheet extends StatefulWidget {
     required this.noteEvent,
     required this.relays,
     required this.identityService,
+    required this.relayService,
   });
 
   final String recipientName;
@@ -49,6 +56,7 @@ class ZapSheet extends StatefulWidget {
   final NostrEvent? noteEvent;
   final List<String> relays;
   final IdentityService identityService;
+  final RelayService relayService;
 
   @override
   State<ZapSheet> createState() => _ZapSheetState();
@@ -57,13 +65,28 @@ class ZapSheet extends StatefulWidget {
 class _ZapSheetState extends State<ZapSheet> {
   final _amountController = TextEditingController(text: '100');
   final _commentController = TextEditingController();
-  final _presets = const [21, 100, 500, 1000, 5000];
+  final _nwcStore = NwcStore();
+
+  static const _presets = [21, 100, 500, 1000, 5000];
 
   String _phase = 'form';
   String _status = '';
   String _error = '';
   String _invoice = '';
   int _sats = 0;
+
+  NwcConnection? _walletConnection;
+  NwcEncryption _walletEncryption = NwcEncryption.nip44V2;
+  bool _walletLoading = true;
+  bool _payingWallet = false;
+  bool _walletPaid = false;
+  String? _walletStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWallet();
+  }
 
   @override
   void dispose() {
@@ -72,8 +95,31 @@ class _ZapSheetState extends State<ZapSheet> {
     super.dispose();
   }
 
+  Future<void> _loadWallet() async {
+    try {
+      final connection = await _nwcStore.load();
+      final encryption = await _nwcStore.loadEncryption();
+
+      if (!mounted) return;
+
+      setState(() {
+        _walletConnection = connection;
+        _walletEncryption = encryption;
+        _walletLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _walletConnection = null;
+        _walletLoading = false;
+      });
+    }
+  }
+
   Future<void> _startZap() async {
     final sats = int.tryParse(_amountController.text.trim());
+
     if (sats == null || sats <= 0) {
       setState(() {
         _phase = 'error';
@@ -81,77 +127,186 @@ class _ZapSheetState extends State<ZapSheet> {
       });
       return;
     }
+
     final comment = _commentController.text.trim();
+
     setState(() {
       _phase = 'loading';
       _status = 'Resolving ${widget.recipientLud16}…';
       _error = '';
     });
+
     try {
       final address = LightningAddress.parse(widget.recipientLud16);
       final params = await fetchLnurlPayParams(address);
+
       if (!params.allowsNostr) {
         throw const FormatException(
           'This Lightning address does not support Nostr zaps.',
         );
       }
+
       final amountMsats = satsToMsats(sats);
       validateAmountMsats(amountMsats, params);
+
       if (!mounted) return;
-      setState(() => _status = 'Signing zap request…');
+
+      setState(() {
+        _status = 'Signing zap request…';
+      });
+
       final tags = buildZapRequestTags(
         recipientPubkeyHex: widget.recipientPubkeyHex,
         amountMsats: amountMsats,
         relays: widget.relays,
         eventId: widget.noteEvent?.id,
       );
+
       final zapRequest = await widget.identityService.signEvent(
         kind: 9734,
         content: comment,
         tags: tags,
       );
+
       if (!mounted) return;
-      setState(() => _status = 'Requesting invoice…');
+
+      setState(() {
+        _status = 'Requesting invoice…';
+      });
+
       final invoice = await fetchZapInvoice(
         params: params,
         zapRequest: zapRequest,
         amountMsats: amountMsats,
       );
+
       if (!mounted) return;
+
       setState(() {
         _phase = 'invoice';
         _invoice = invoice;
         _sats = sats;
+        _payingWallet = false;
+        _walletPaid = false;
+        _walletStatus = null;
       });
-    } on FormatException catch (e) {
+    } on FormatException catch (error) {
       if (!mounted) return;
+
       setState(() {
         _phase = 'error';
-        _error = e.message;
+        _error = error.message;
       });
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
+
       setState(() {
         _phase = 'error';
-        _error = 'Zap failed: ${e.toString().replaceFirst('Exception: ', '')}';
+        _error =
+            'Zap failed: ${error.toString().replaceFirst('Exception: ', '')}';
       });
+    }
+  }
+
+  Future<void> _payWithWallet() async {
+    final connection = _walletConnection;
+
+    if (connection == null || _payingWallet || _walletPaid) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Pay $_sats sats?'),
+        content: Text(
+          'Pay ${widget.recipientName} using your connected wallet?\n\n'
+          'Recipient: ${widget.recipientLud16}\n'
+          'Amount: $_sats sats\n\n'
+          'This zap is public and cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Pay'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _payingWallet = true;
+      _walletStatus = 'Sending payment request to your wallet…';
+    });
+
+    try {
+      final response = await walletPayInvoice(
+        connection: connection,
+        relayService: widget.relayService,
+        invoice: _invoice,
+        encryption: _walletEncryption,
+      );
+
+      if (!mounted) return;
+
+      if (response == null) {
+        setState(() {
+          _walletStatus =
+              'Payment status unknown. The wallet did not answer within '
+              '45 seconds. Do not retry yet—check your wallet history first.';
+        });
+      } else if (!response.success) {
+        setState(() {
+          _walletStatus = 'Wallet refused payment: '
+              '${response.errorCode ?? 'unknown'}'
+              '${response.errorMessage == null ? '' : ' — ${response.errorMessage}'}';
+        });
+      } else {
+        setState(() {
+          _walletPaid = true;
+          _walletStatus =
+              'Paid via connected wallet. The zap receipt may take a '
+              'moment to appear on your relays.';
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _walletStatus = 'Payment request failed: '
+            '${error.toString().replaceFirst('Exception: ', '')}';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _payingWallet = false;
+        });
+      }
     }
   }
 
   Future<void> _copyInvoice() async {
     await Clipboard.setData(ClipboardData(text: _invoice));
+
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Invoice copied.')));
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Invoice copied.')),
+    );
   }
 
   Future<void> _openWallet() async {
     try {
-      final ok = await launchUrl(
+      final opened = await launchUrl(
         Uri.parse('lightning:$_invoice'),
         mode: LaunchMode.externalApplication,
       );
-      if (!ok && mounted) {
+
+      if (!opened && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('No Lightning wallet found. Copy the invoice.'),
@@ -160,6 +315,7 @@ class _ZapSheetState extends State<ZapSheet> {
       }
     } catch (_) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not open a wallet.')),
       );
@@ -169,6 +325,7 @@ class _ZapSheetState extends State<ZapSheet> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -180,10 +337,15 @@ class _ZapSheetState extends State<ZapSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (_phase == 'form') ...[
-              Text('Zap ${widget.recipientName}',
-                  style: textTheme.headlineSmall),
+              Text(
+                'Zap ${widget.recipientName}',
+                style: textTheme.headlineSmall,
+              ),
               const SizedBox(height: 4),
-              Text(widget.recipientLud16, style: textTheme.bodySmall),
+              Text(
+                widget.recipientLud16,
+                style: textTheme.bodySmall,
+              ),
               if (widget.noteEvent != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -201,9 +363,11 @@ class _ZapSheetState extends State<ZapSheet> {
                     ChoiceChip(
                       label: Text('$preset'),
                       selected: _amountController.text.trim() == '$preset',
-                      onSelected: (_) => setState(
-                        () => _amountController.text = '$preset',
-                      ),
+                      onSelected: (_) {
+                        setState(() {
+                          _amountController.text = '$preset';
+                        });
+                      },
                     ),
                 ],
               ),
@@ -211,7 +375,9 @@ class _ZapSheetState extends State<ZapSheet> {
               TextField(
                 controller: _amountController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                ],
                 decoration: const InputDecoration(
                   labelText: 'Amount (sats)',
                   border: OutlineInputBorder(),
@@ -249,8 +415,10 @@ class _ZapSheetState extends State<ZapSheet> {
               Center(child: Text(_status)),
             ],
             if (_phase == 'invoice') ...[
-              Text('Pay $_sats sats in your wallet',
-                  style: textTheme.titleLarge),
+              Text(
+                'Pay $_sats sats in your wallet',
+                style: textTheme.titleLarge,
+              ),
               const SizedBox(height: 12),
               Center(
                 child: Container(
@@ -268,7 +436,10 @@ class _ZapSheetState extends State<ZapSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              SelectableText(_invoice, style: const TextStyle(fontSize: 11)),
+              SelectableText(
+                _invoice,
+                style: const TextStyle(fontSize: 11),
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -289,7 +460,46 @@ class _ZapSheetState extends State<ZapSheet> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              if (_walletLoading) ...[
+                const SizedBox(height: 12),
+                const Text('Checking for a connected wallet…'),
+              ],
+              if (!_walletLoading && _walletConnection != null) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed:
+                        _payingWallet || _walletPaid ? null : _payWithWallet,
+                    icon: _payingWallet
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.account_balance_wallet_outlined),
+                    label: Text(
+                      _payingWallet
+                          ? 'Paying…'
+                          : _walletPaid
+                              ? 'Paid with connected wallet'
+                              : 'Pay $_sats sats with connected wallet',
+                    ),
+                  ),
+                ),
+                if (_walletStatus != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_walletStatus!),
+                ],
+              ],
+              if (!_walletLoading && _walletConnection == null) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'No NWC wallet connected. Connect one in Wallet, or use '
+                  'Open wallet / Copy invoice.',
+                ),
+              ],
+              const SizedBox(height: 12),
               Text(
                 'After paying, the server should publish a zap receipt. '
                 'Receipt tracking arrives later.',
@@ -305,7 +515,11 @@ class _ZapSheetState extends State<ZapSheet> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => setState(() => _phase = 'form'),
+                      onPressed: () {
+                        setState(() {
+                          _phase = 'form';
+                        });
+                      },
                       child: const Text('Back'),
                     ),
                   ),
