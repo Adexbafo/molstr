@@ -18,6 +18,7 @@ import 'ui/widgets/account_switcher_sheet.dart';
 import 'features/notifications/notifications_page.dart';
 import 'features/messages/messages_page.dart';
 import 'features/settings/dm_relays_page.dart';
+import 'features/wallet/wallet_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -397,8 +398,10 @@ class _MolStrShellState extends State<MolStrShell> {
           pubkey: _identity?.pubkey,
           loadImages: widget.loadImages,
         ),
-        const Center(
-            child: Text('Wallet: NWC and Monero handoff coming next.')),
+        WalletPage(
+          key: ValueKey(_identity?.pubkey ?? 'signed-out'),
+          relayService: widget.relayService,
+        ),
         _profilePage(),
         SettingsPage(
           preset: widget.preset,
