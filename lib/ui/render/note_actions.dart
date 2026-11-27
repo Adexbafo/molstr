@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/nostr/interactions.dart';
 import '../../core/nostr/nip19.dart';
 import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/nostr_lists.dart';
 import '../../core/nostr/note_engagement.dart';
 import '../../core/payments/monero.dart';
 import '../../core/payments/zap_watch.dart';
@@ -37,6 +38,20 @@ class _NoteActionBarState extends State<NoteActionBar> {
   int _likeDelta = 0;
   int _repostDelta = 0;
 
+  bool _listStateLoaded = false;
+  bool _listBusy = false;
+  String? _myPubkey;
+  bool _bookmarked = false;
+  bool _pinned = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_listStateLoaded) return;
+    _listStateLoaded = true;
+    _loadListState();
+  }
+
   @override
   void didUpdateWidget(covariant NoteActionBar oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -46,6 +61,90 @@ class _NoteActionBarState extends State<NoteActionBar> {
       _likeDelta = 0;
       _repostDelta = 0;
     }
+    if (oldWidget.event.id != widget.event.id) {
+      _refreshListFlags();
+    }
+  }
+
+  NostrListService _listsFor(Interactions interactions) => NostrListService(
+        identityService: interactions.identityService,
+        relayService: interactions.relayService,
+        preferences: interactions.preferences,
+      );
+
+  Future<void> _loadListState() async {
+    final interactions = InteractionsScope.of(context);
+    if (interactions == null) return;
+    final me = await interactions.identityService.currentIdentity();
+    if (!mounted || me == null) return;
+    _myPubkey = me.pubkey;
+    _refreshListFlags();
+  }
+
+  void _refreshListFlags() {
+    final interactions = InteractionsScope.of(context);
+    final me = _myPubkey;
+    if (interactions == null || me == null) return;
+    final lists = _listsFor(interactions);
+    final id = widget.event.id.toLowerCase();
+    setState(() {
+      _bookmarked = lists.cachedIds(me, kBookmarkListKind).contains(id);
+      _pinned = lists.cachedIds(me, kPinListKind).contains(id);
+    });
+  }
+
+  bool get _isOwnNote =>
+      _myPubkey != null && widget.event.pubkey.toLowerCase() == _myPubkey;
+
+  Future<void> _toggleList(int kind) async {
+    final interactions = InteractionsScope.of(context);
+    if (interactions == null || !interactions.canSign) {
+      _message('Connect a key in Profile first.');
+      return;
+    }
+    if (_listBusy) return;
+
+    final isBookmark = kind == kBookmarkListKind;
+    final add = isBookmark ? !_bookmarked : !_pinned;
+
+    setState(() => _listBusy = true);
+    ListUpdateResult result;
+    try {
+      result = await _listsFor(interactions).toggle(
+        kind: kind,
+        eventId: widget.event.id,
+        add: add,
+        relays: interactions.relays,
+        private: isBookmark,
+      );
+    } catch (_) {
+      result = ListUpdateResult.rejected;
+    }
+    if (!mounted) return;
+
+    setState(() {
+      _listBusy = false;
+      if (result == ListUpdateResult.published) {
+        if (isBookmark) {
+          _bookmarked = add;
+        } else {
+          _pinned = add;
+        }
+      }
+    });
+
+    _message(switch (result) {
+      ListUpdateResult.published => isBookmark
+          ? (add ? 'Bookmarked privately.' : 'Bookmark removed.')
+          : (add ? 'Pinned to your profile.' : 'Unpinned.'),
+      ListUpdateResult.noIdentity => 'Connect a key in Profile first.',
+      ListUpdateResult.unknownState =>
+        'Some relays did not respond, so your list was not changed.',
+      ListUpdateResult.unreadable =>
+        'Your existing list uses encryption MolStr cannot read yet, '
+            'so it was not changed.',
+      ListUpdateResult.rejected => 'No relay accepted the change.',
+    });
   }
 
   /// The zap total on this card: the engagement count, or a higher total
@@ -257,8 +356,6 @@ class _NoteActionBarState extends State<NoteActionBar> {
     }
 
     final noteId = widget.event.id;
-    // Read before the sheet opens, so a receipt that arrives while the
-    // sheet is showing still counts as new.
     final baseline = _zapSatsShown;
 
     await showZapSheet(
@@ -376,7 +473,29 @@ class _NoteActionBarState extends State<NoteActionBar> {
             icon: const Icon(Icons.shield_outlined, size: 20),
             onPressed: _openMoneroTip,
           ),
-          if (_busy)
+          IconButton(
+            tooltip: _bookmarked
+                ? 'Remove bookmark'
+                : 'Bookmark privately (only you can see it)',
+            icon: Icon(
+              _bookmarked ? Icons.bookmark : Icons.bookmark_border,
+              size: 20,
+              color: _bookmarked ? accent : null,
+            ),
+            onPressed: _listBusy ? null : () => _toggleList(kBookmarkListKind),
+          ),
+          if (_isOwnNote)
+            IconButton(
+              tooltip:
+                  _pinned ? 'Unpin from profile' : 'Pin to profile (public)',
+              icon: Icon(
+                _pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                size: 20,
+                color: _pinned ? accent : null,
+              ),
+              onPressed: _listBusy ? null : () => _toggleList(kPinListKind),
+            ),
+          if (_busy || _listBusy)
             const Padding(
               padding: EdgeInsets.only(left: 6),
               child: SizedBox(

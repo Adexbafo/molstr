@@ -14,6 +14,8 @@ import '../../core/nostr/nostr_event.dart';
 import '../../ui/render/poll_card.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../ui/widgets/account_switcher_sheet.dart';
+import '../../core/nostr/interactions.dart';
+import 'saved_notes_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -374,6 +376,22 @@ class _ProfilePageState extends State<ProfilePage>
                     },
                     icon: const Icon(Icons.edit_outlined),
                     label: const Text('Edit profile'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      final interactions = InteractionsScope.of(context);
+                      if (interactions == null) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => SavedNotesPage(
+                            interactions: interactions,
+                            loadImages: widget.loadImages,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.bookmarks_outlined),
+                    label: const Text('Saved'),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => showAccountSwitcherSheet(
