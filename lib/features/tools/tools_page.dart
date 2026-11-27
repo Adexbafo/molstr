@@ -5,6 +5,9 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/relay_service.dart';
+import '../../core/payments/nwc.dart';
+import '../../core/payments/nwc_cipher.dart';
+import '../../core/payments/nwc_store.dart';
 
 class ToolsPage extends StatefulWidget {
   const ToolsPage({
@@ -27,12 +30,53 @@ class ToolsPage extends StatefulWidget {
 class _ToolsPageState extends State<ToolsPage> {
   Identity? _identity;
   bool _testingRelays = false;
+  bool _testingNwc = false;
   final Map<String, String> _relayLatency = {};
 
   @override
   void initState() {
     super.initState();
     _loadIdentity();
+  }
+
+  Future<void> _testNwcConnection() async {
+    final store = NwcStore();
+    final connection = await store.load();
+    if (connection == null) {
+      _message('No NWC wallet connected. Connect one in Wallet first.');
+      return;
+    }
+
+    setState(() => _testingNwc = true);
+    try {
+      final NwcEncryption encryption = await store.loadEncryption();
+      final response = await walletGetInfo(
+        connection: connection,
+        relayService: widget.relayService,
+        encryption: encryption,
+      );
+      if (!mounted) return;
+      if (response == null) {
+        _message('NWC get_info: no response within 30 seconds.');
+      } else if (!response.success) {
+        _message(
+          'NWC refused: ${response.errorCode ?? 'unknown'}'
+          '${response.errorMessage == null ? '' : ' — ${response.errorMessage}'}',
+        );
+      } else {
+        final methods = (response.result['methods'] as List?)
+                ?.whereType<String>()
+                .join(', ') ??
+            'none';
+        _message('NWC verified. Methods: $methods');
+      }
+    } catch (e) {
+      _message(
+        'NWC test failed: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) setState(() => _testingNwc = false);
+    }
   }
 
   Future<void> _loadIdentity() async {
@@ -147,6 +191,27 @@ class _ToolsPageState extends State<ToolsPage> {
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text('Wallet Diagnostics', style: textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.security_outlined),
+              title: const Text('Test NWC encrypted connection'),
+              subtitle: const Text(
+                'Sends a read-only get_info request to your connected '
+                'wallet. Spends nothing.',
+              ),
+              trailing: _testingNwc
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.chevron_right),
+              onTap: _testingNwc ? null : _testNwcConnection,
             ),
           ),
           const SizedBox(height: 24),
