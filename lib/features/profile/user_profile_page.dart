@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -6,13 +8,16 @@ import '../../core/nostr/identity_service.dart';
 import '../../core/nostr/interactions.dart';
 import '../../core/nostr/nip19.dart';
 import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/note_engagement.dart';
+import '../../core/nostr/pinned_notes.dart';
 import '../../core/nostr/relay_service.dart';
+import '../../core/nostr/user_relays.dart';
 import '../../ui/render/note_card.dart';
+import '../../ui/render/poll_card.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
 import '../../ui/widgets/social_counts_line.dart';
 import '../messages/chat_page.dart';
-import '../../core/nostr/user_relays.dart';
 
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({
@@ -31,9 +36,15 @@ class UserProfilePage extends StatefulWidget {
 }
 
 class _UserProfilePageState extends State<UserProfilePage> {
+  /// The relay layer accepts at most 60 ids per count request.
+  static const _countBatchSize = 60;
+
   late final FollowService _followService;
 
   FeedResult? _result;
+  List<NostrEvent> _pinned = const [];
+  Map<String, NoteEngagement> _engagement = const {};
+  int _engagementGeneration = 0;
   Identity? _me;
   bool _loading = true;
   bool _following = false;
@@ -84,6 +95,19 @@ class _UserProfilePageState extends State<UserProfilePage> {
       authors: [widget.pubkey],
     );
 
+    // Pins live on the user's own write relays, so read from the wide set.
+    // A failed lookup keeps whatever pins were last seen.
+    List<NostrEvent>? pins;
+    try {
+      pins = await fetchPinnedNotes(
+        relayService: widget.interactions.relayService,
+        pubkey: widget.pubkey,
+        relays: relaysForReading,
+      );
+    } catch (_) {
+      pins = null;
+    }
+
     var following = _following;
     if (me != null && me.pubkey != widget.pubkey) {
       final state = await _followService.syncFollows(
@@ -99,9 +123,41 @@ class _UserProfilePageState extends State<UserProfilePage> {
     setState(() {
       _me = me;
       _result = result;
+      _pinned = pins ?? _pinned;
+      _engagement = const {};
       _following = following;
       _loading = false;
     });
+
+    unawaited(_loadEngagement(result));
+  }
+
+  Future<void> _loadEngagement(FeedResult result) async {
+    final generation = ++_engagementGeneration;
+
+    final ids = <String>{
+      for (final event in _pinned) event.id,
+      for (final note in result.notes) note.id,
+    }.toList();
+    if (ids.isEmpty || result.connectedRelays.isEmpty) return;
+
+    try {
+      for (var start = 0; start < ids.length; start += _countBatchSize) {
+        final next = start + _countBatchSize;
+        final end = next < ids.length ? next : ids.length;
+
+        final counts =
+            await widget.interactions.relayService.fetchNoteEngagement(
+          ids.sublist(start, end),
+          widget.interactions.relays,
+        );
+
+        if (!mounted || generation != _engagementGeneration) return;
+        setState(() => _engagement = {..._engagement, ...counts});
+      }
+    } catch (_) {
+      // Counts are optional. The notes stay readable without them.
+    }
   }
 
   Future<void> _toggleFollow() async {
@@ -164,13 +220,65 @@ class _UserProfilePageState extends State<UserProfilePage> {
     });
   }
 
+  /// A note or poll as a card. Pins can be either.
+  Widget _card(NostrEvent event) {
+    final result = _result;
+    final profile = result?.profiles[event.pubkey];
+    final provenance = relayProvenance(result?.noteRelays[event.id]);
+
+    if (event.kind == 1068) {
+      final poll = PollData.fromEvent(event);
+      if (poll != null) {
+        return PollCard(
+          key: ValueKey('poll:${event.id}'),
+          poll: poll,
+          profile: profile,
+          provenance: provenance,
+          loadImages: widget.loadImages,
+          engagement: _engagement[event.id],
+        );
+      }
+    }
+    return NoteCard(
+      key: ValueKey('note:${event.id}'),
+      event: event,
+      profile: profile,
+      provenance: provenance,
+      loadImages: widget.loadImages,
+      engagement: _engagement[event.id],
+    );
+  }
+
+  Widget _sectionTitle(String text, {IconData? icon}) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 16),
+            const SizedBox(width: 6),
+          ],
+          Text(text, style: theme.textTheme.titleSmall),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final profile = _result?.profiles[widget.pubkey];
     final bestName = profile?.bestName ?? shortNpub(_npub);
-    final notes = _result?.notes ?? const <NostrEvent>[];
     final isOwn = _me?.pubkey == widget.pubkey;
+
+    // Pinned notes move to their own section instead of appearing twice.
+    final pinnedIds = {for (final event in _pinned) event.id};
+    final notes = [
+      for (final note in _result?.notes ?? const <NostrEvent>[])
+        if (!pinnedIds.contains(note.id)) note,
+    ];
+    final hasAnything = notes.isNotEmpty || _pinned.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -286,7 +394,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                                             width: 16,
                                             height: 16,
                                             child: CircularProgressIndicator(
-                                                strokeWidth: 2),
+                                              strokeWidth: 2,
+                                            ),
                                           )
                                         : const Icon(Icons.person_add),
                                     label: const Text('Follow'),
@@ -309,24 +418,29 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   padding: EdgeInsets.all(32),
                   child: Center(child: CircularProgressIndicator()),
                 )
-              else if (notes.isEmpty)
+              else if (!hasAnything)
                 const Padding(
                   padding: EdgeInsets.all(32),
                   child: Text(
                     'No notes found on your relays for this user yet.',
                   ),
                 )
-              else
+              else ...[
+                if (_pinned.isNotEmpty) ...[
+                  _sectionTitle('Pinned', icon: Icons.push_pin),
+                  for (final event in _pinned)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: _card(event),
+                    ),
+                  if (notes.isNotEmpty) _sectionTitle('Notes'),
+                ],
                 for (final note in notes)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: NoteCard(
-                      event: note,
-                      profile: _result?.profiles[note.pubkey],
-                      provenance: relayProvenance(_result?.noteRelays[note.id]),
-                      loadImages: widget.loadImages,
-                    ),
+                    child: _card(note),
                   ),
+              ],
             ],
           ),
         ),
