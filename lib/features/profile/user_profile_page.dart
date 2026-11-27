@@ -18,6 +18,7 @@ import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
 import '../../ui/widgets/social_counts_line.dart';
 import '../messages/chat_page.dart';
+import '../../ui/payments/zap_sheet.dart';
 
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({
@@ -194,6 +195,31 @@ class _UserProfilePageState extends State<UserProfilePage> {
       case FollowUpdateResult.rejected:
         _message('No relay accepted the change.');
     }
+  }
+
+  Future<void> _zapProfile() async {
+    final profile = _result?.profiles[widget.pubkey];
+    final lud16 = profile?.lud16;
+
+    if (_me == null) {
+      _message('Connect a key in Profile to zap.');
+      return;
+    }
+    if (lud16 == null || lud16.trim().isEmpty) {
+      _message('This profile has no Lightning address.');
+      return;
+    }
+
+    await showZapSheet(
+      context: context,
+      recipientName: profile?.bestName ?? shortNpub(_npub),
+      recipientLud16: lud16.trim(),
+      recipientPubkeyHex: widget.pubkey,
+      noteEvent: null, // profile zap: no e tag
+      relays: widget.interactions.relays,
+      identityService: widget.interactions.identityService,
+      relayService: widget.interactions.relayService,
+    );
   }
 
   void _openChat() {
@@ -407,6 +433,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           onPressed: _openChat,
                           icon: const Icon(Icons.mail_outline),
                           label: const Text('Message'),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: _zapProfile,
+                          icon: const Icon(Icons.bolt),
+                          label: const Text('Zap'),
                         ),
                       ],
                     ],
