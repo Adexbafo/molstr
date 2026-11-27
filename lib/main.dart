@@ -19,6 +19,7 @@ import 'features/notifications/notifications_page.dart';
 import 'features/messages/messages_page.dart';
 import 'features/settings/dm_relays_page.dart';
 import 'features/wallet/wallet_page.dart';
+import 'features/games/games_page.dart';
 
 const _themeKey = 'appearance.theme';
 const _fontKey = 'appearance.font';
@@ -382,7 +383,14 @@ class _MolStrShellState extends State<MolStrShell> {
           key: ValueKey(('home', _identity?.pubkey, widget.relays.join('\n'))),
           viewerPubkey: _identity?.pubkey,
         ),
-        const Center(child: Text('Nostr games showcase: coming next.')),
+        GamesPage(
+          key: ValueKey(('games', _identity?.pubkey, widget.relays.join('\n'))),
+          identityService: _identityService,
+          relayService: widget.relayService,
+          relays: widget.relays,
+          preferences: widget.preferences,
+          loadImages: widget.loadImages,
+        ),
         NotificationsPage(
           key: ValueKey(_identity?.pubkey ?? 'signed-out'),
           relayService: widget.relayService,
