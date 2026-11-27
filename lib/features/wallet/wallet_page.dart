@@ -5,8 +5,11 @@ import '../../core/payments/nwc.dart';
 import '../../core/payments/nwc_cipher.dart';
 import '../../core/payments/nwc_store.dart';
 
-enum WalletPhase { loading, disconnected, connected, connecting, error }
-
+/// The Lightning side of the Wallet: one Nostr Wallet Connect connection.
+///
+/// Connecting sends an encrypted, read-only get_info request, so a
+/// connection string is saved only after the wallet has answered it.
+/// Nothing here contacts the wallet until the user presses a button.
 class WalletPage extends StatefulWidget {
   const WalletPage({super.key, required this.relayService});
 
@@ -16,18 +19,29 @@ class WalletPage extends StatefulWidget {
   State<WalletPage> createState() => _WalletPageState();
 }
 
+/// The outcome of asking the wallet for get_info.
+class _Probe {
+  const _Probe({this.mode, this.response, this.failure});
+
+  final NwcEncryption? mode;
+  final NwcResponse? response;
+  final String? failure;
+}
+
 class _WalletPageState extends State<WalletPage> {
   final _store = NwcStore();
   final _uriController = TextEditingController();
 
-  WalletPhase _phase = WalletPhase.loading;
+  bool _restoring = true;
+  bool _busy = false;
+  String _busyText = '';
+
   NwcConnection? _connection;
   NwcEncryption _encryption = NwcEncryption.nip44V2;
-  String? _info;
-  String? _error;
-  String? _testInfo;
+  List<String>? _methods;
   String? _balanceText;
-  bool _checkingBalance = false;
+  String? _notice;
+  String? _error;
 
   @override
   void initState() {
@@ -41,487 +55,457 @@ class _WalletPageState extends State<WalletPage> {
     super.dispose();
   }
 
-  void _message(String text) {
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  String _clean(Object error) =>
+      error.toString().replaceFirst('Exception: ', '');
+
+  String _shortHex(String hex) {
+    if (hex.length <= 20) return hex;
+    return '${hex.substring(0, 10)}…${hex.substring(hex.length - 6)}';
   }
 
+  String? _formatBalance(Object? raw) {
+    final msats = raw is num ? raw.toInt() : int.tryParse('$raw');
+    if (msats == null) return null;
+    if (msats % 1000 == 0) return '${msats ~/ 1000} sats';
+    return '${(msats / 1000).toStringAsFixed(3)} sats';
+  }
+
+  List<String>? _methodsFrom(NwcResponse response) {
+    if (!response.success) return null;
+    final raw = response.result['methods'];
+    if (raw is! List) return null;
+    return raw.whereType<String>().toList();
+  }
+
+  /// Reads the saved connection from secure storage. No network is used.
   Future<void> _restore() async {
-    final connection = await _store.load();
-    final enc = await _store.loadEncryption();
-    if (!mounted) {
-      return;
+    NwcConnection? connection;
+    var encryption = NwcEncryption.nip44V2;
+    String? error;
+
+    try {
+      connection = await _store.load();
+      encryption = await _store.loadEncryption();
+    } catch (_) {
+      error = 'Could not open secure storage, so MolStr cannot tell whether '
+          'a wallet is saved. Unlock your keyring and reopen the app.';
     }
-    if (connection == null) {
-      setState(() {
-        _phase = WalletPhase.disconnected;
-      });
-      return;
-    }
+
+    if (!mounted) return;
     setState(() {
       _connection = connection;
-      _encryption = enc;
-      _phase = WalletPhase.connected;
+      _encryption = encryption;
+      _error = error;
+      _restoring = false;
     });
-    await _handshake(showErrors: false);
+  }
+
+  /// Sends an encrypted get_info request. It is read-only and spends
+  /// nothing. Tries [preferred] first, then the other encryption mode.
+  Future<_Probe> _probe(
+    NwcConnection connection,
+    NwcEncryption preferred,
+  ) async {
+    final modes = [
+      preferred,
+      for (final mode in NwcEncryption.values)
+        if (mode != preferred) mode,
+    ];
+
+    String? failure;
+    for (final mode in modes) {
+      try {
+        final response = await sendNwcRequest(
+          connection: connection,
+          relayService: widget.relayService,
+          method: 'get_info',
+          encryption: mode,
+          overallTimeout: const Duration(seconds: 15),
+        );
+        if (response != null) {
+          return _Probe(mode: mode, response: response);
+        }
+      } catch (error) {
+        failure = 'Could not reach the wallet: ${_clean(error)} '
+            'Check your connection and that this device\'s clock is correct.';
+      }
+    }
+    return _Probe(failure: failure);
   }
 
   Future<void> _connect() async {
+    if (_busy) return;
+
     final uri = _uriController.text.trim();
-    if (uri.isEmpty) {
+    final NwcConnection connection;
+    try {
+      connection = NwcConnection.parse(uri);
+    } on FormatException catch (error) {
       setState(() {
-        _phase = WalletPhase.error;
-        _error = 'Paste a nostr+walletconnect:// connection string.';
+        _error = error.message;
       });
       return;
     }
+
     setState(() {
-      _phase = WalletPhase.connecting;
+      _busy = true;
+      _busyText = 'Asking the wallet to confirm this connection…';
       _error = null;
+      _notice = null;
     });
-    try {
-      final connection = NwcConnection.parse(uri);
+
+    final probe = await _probe(connection, NwcEncryption.nip44V2);
+    if (!mounted) return;
+
+    final response = probe.response;
+    final mode = probe.mode;
+
+    if (response == null || mode == null) {
       setState(() {
-        _connection = connection;
+        _busy = false;
+        _error = '${probe.failure ?? 'The wallet did not answer.'} '
+            'Nothing was saved.';
       });
-      final info = await fetchWalletInfo(
-        connection: connection,
-        relayService: widget.relayService,
-      );
-      if (!mounted) {
-        return;
-      }
-      if (info == null) {
-        setState(() {
-          _phase = WalletPhase.error;
-          _error =
-              'The wallet service did not answer on its relays. Nothing was saved.';
-        });
-        return;
-      }
+      return;
+    }
+
+    if (response.errorCode == 'UNAUTHORIZED') {
+      setState(() {
+        _busy = false;
+        _error = 'The wallet does not recognise this connection string. '
+            'Nothing was saved.';
+      });
+      return;
+    }
+
+    try {
+      await _store.saveEncryption(mode);
       await _store.save(uri);
-      await _store.saveEncryption(NwcEncryption.nip44V2);
-      if (!mounted) {
-        return;
-      }
-      _uriController.clear();
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
-        _phase = WalletPhase.connected;
-        _info = info;
-        _encryption = NwcEncryption.nip44V2;
-        _testInfo = null;
-        _balanceText = null;
+        _busy = false;
+        _error = 'Could not save to secure storage. Nothing was saved.';
       });
-      _message('Wallet connected.');
-    } on FormatException catch (e) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _phase = WalletPhase.error;
-        _error = e.message;
-      });
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _phase = WalletPhase.error;
-        _error =
-            'Connection failed: ${e.toString().replaceFirst('Exception: ', '')}';
-      });
-    }
-  }
-
-  Future<void> _handshake({required bool showErrors}) async {
-    final connection = _connection;
-    if (connection == null) {
       return;
     }
+
+    if (!mounted) return;
+    _uriController.clear();
     setState(() {
-      _phase = WalletPhase.connecting;
+      _busy = false;
+      _connection = connection;
+      _encryption = mode;
+      _methods = _methodsFrom(response);
+      _balanceText = null;
+      _notice = response.success
+          ? 'Connection confirmed by the wallet.'
+          : 'The wallet accepted this connection but did not share its '
+              'details (${response.errorCode ?? 'no reason given'}).';
     });
-    try {
-      final info = await fetchWalletInfo(
-        connection: connection,
-        relayService: widget.relayService,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _phase = WalletPhase.connected;
-        _info = info;
-        if (info == null && showErrors) {
-          _error = 'The wallet service did not answer on its relays.';
-        }
-      });
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _phase = WalletPhase.connected;
-        if (showErrors) {
-          _error =
-              'Handshake failed: ${e.toString().replaceFirst('Exception: ', '')}';
-        }
-      });
-    }
   }
 
-  Future<void> _testConnection() async {
+  /// Asks the wallet for its current details and balance.
+  Future<void> _refresh() async {
     final connection = _connection;
-    if (connection == null || _phase == WalletPhase.connecting) {
-      return;
-    }
+    if (connection == null || _busy) return;
+
     setState(() {
-      _phase = WalletPhase.connecting;
+      _busy = true;
+      _busyText = 'Asking the wallet for its status…';
       _error = null;
-      _testInfo = null;
+      _notice = null;
     });
-    for (final mode in [NwcEncryption.nip44V2, NwcEncryption.nip04]) {
+
+    final probe = await _probe(connection, _encryption);
+    if (!mounted) return;
+
+    final response = probe.response;
+    final mode = probe.mode;
+
+    if (response == null || mode == null) {
+      setState(() {
+        _busy = false;
+        _error =
+            probe.failure ?? 'The wallet did not answer. It may be offline.';
+      });
+      return;
+    }
+
+    if (response.errorCode == 'UNAUTHORIZED') {
+      setState(() {
+        _busy = false;
+        _error = 'The wallet no longer recognises this connection. It may '
+            'have been revoked. Disconnect, then connect again.';
+      });
+      return;
+    }
+
+    if (mode != _encryption) {
       try {
-        final response = await walletGetInfo(
+        await _store.saveEncryption(mode);
+      } catch (_) {
+        // The mode is still used for this session.
+      }
+      if (!mounted) return;
+    }
+
+    final methods = _methodsFrom(response);
+    String? balanceText;
+    String? balanceProblem;
+
+    if (methods == null || methods.contains('get_balance')) {
+      setState(() {
+        _busyText = 'Asking the wallet for its balance…';
+      });
+      try {
+        final balance = await walletGetBalance(
           connection: connection,
           relayService: widget.relayService,
           encryption: mode,
         );
-        if (!mounted) {
-          return;
+        if (balance == null) {
+          balanceProblem = 'The wallet did not answer the balance request.';
+        } else if (!balance.success) {
+          balanceProblem = 'The wallet did not share its balance '
+              '(${balance.errorCode ?? 'no reason given'}).';
+        } else {
+          balanceText = _formatBalance(balance.result['balance']);
+          if (balanceText == null) {
+            balanceProblem =
+                'The wallet returned a balance MolStr could not read.';
+          }
         }
-        if (response == null) {
-          continue;
-        }
-        if (!response.success) {
-          await _store.saveEncryption(mode);
-          setState(() {
-            _phase = WalletPhase.connected;
-            _encryption = mode;
-            _error =
-                'Wallet refused get_info: ${response.errorCode ?? 'unknown'}${response.errorMessage == null ? '' : ' — ${response.errorMessage}'}';
-          });
-          return;
-        }
-        await _store.saveEncryption(mode);
-        final methods = (response.result['methods'] as List?)
-                ?.whereType<String>()
-                .join(', ') ??
-            'none advertised';
-        setState(() {
-          _phase = WalletPhase.connected;
-          _encryption = mode;
-          _error = null;
-          _testInfo =
-              'Encrypted request round-trip confirmed (${mode.label}).\nMethods: $methods';
-        });
-        return;
-      } catch (_) {
-        continue;
+      } catch (error) {
+        balanceProblem = 'Balance request failed: ${_clean(error)}';
       }
+      if (!mounted) return;
     }
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _phase = WalletPhase.connected;
-      _error = 'The wallet did not answer within 60 seconds in either mode.';
-    });
-  }
 
-  Future<void> _checkBalance() async {
-    final connection = _connection;
-    if (connection == null ||
-        _checkingBalance ||
-        _phase == WalletPhase.connecting) {
-      return;
-    }
     setState(() {
-      _checkingBalance = true;
-      _error = null;
+      _busy = false;
+      _encryption = mode;
+      _methods = methods ?? _methods;
+      _balanceText = balanceText;
+      _error = balanceProblem;
+      _notice = 'Status checked just now.';
     });
-    try {
-      final response = await walletGetBalance(
-        connection: connection,
-        relayService: widget.relayService,
-        encryption: _encryption,
-      );
-      if (!mounted) {
-        return;
-      }
-      if (response == null) {
-        setState(() {
-          _balanceText = null;
-          _error =
-              'The wallet did not answer the balance request within 30 seconds.';
-        });
-        return;
-      }
-      if (!response.success) {
-        setState(() {
-          _balanceText = null;
-          _error =
-              'Wallet refused get_balance: ${response.errorCode ?? 'unknown'}';
-        });
-        return;
-      }
-      final raw = response.result['balance'];
-      final msats = raw is num ? raw.toInt() : int.tryParse('$raw');
-      if (msats == null) {
-        setState(() {
-          _balanceText = null;
-          _error = 'Wallet returned a balance MolStr could not read.';
-        });
-        return;
-      }
-      setState(() {
-        _balanceText = msats % 1000 == 0
-            ? '${msats ~/ 1000} sats'
-            : '${(msats / 1000).toStringAsFixed(3)} sats';
-      });
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _balanceText = null;
-        _error =
-            'Balance request failed: ${e.toString().replaceFirst('Exception: ', '')}';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _checkingBalance = false;
-        });
-      }
-    }
   }
 
   Future<void> _disconnect() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Disconnect wallet?'),
         content: const Text(
-          'MolStr will delete the connection secret from this device.',
+          'MolStr will delete the connection secret from this device. To '
+          'cancel the connection completely, also revoke it in your wallet.',
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.of(context).pop(false);
-            },
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop(true);
-            },
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('Disconnect'),
           ),
         ],
       ),
     );
-    if (confirmed != true) {
+    if (confirmed != true) return;
+
+    try {
+      await _store.clear();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not delete the secret from secure storage.';
+      });
       return;
     }
-    await _store.clear();
-    if (!mounted) {
-      return;
-    }
+
+    if (!mounted) return;
     setState(() {
       _connection = null;
-      _info = null;
-      _phase = WalletPhase.disconnected;
-      _testInfo = null;
+      _methods = null;
       _balanceText = null;
+      _notice = null;
+      _error = null;
     });
   }
 
-  String _shortHex(String hex) {
-    if (hex.length <= 20) {
-      return hex;
+  Widget _busyRow() {
+    return Row(
+      children: [
+        const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Text(_busyText)),
+      ],
+    );
+  }
+
+  String _canPayText() {
+    final methods = _methods;
+    if (methods == null) {
+      return 'Not checked yet. Press "Check wallet status".';
     }
-    return '${hex.substring(0, 10)}…${hex.substring(hex.length - 6)}';
+    if (methods.contains('pay_invoice')) return 'Yes';
+    return 'No. This connection is not allowed to pay.';
+  }
+
+  List<Widget> _connectForm(ThemeData theme) {
+    return [
+      Icon(Icons.bolt, size: 48, color: theme.colorScheme.primary),
+      const SizedBox(height: 12),
+      Text(
+        'Connect a Lightning wallet',
+        style: theme.textTheme.titleLarge,
+        textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 8),
+      const Text(
+        'Paste the Nostr Wallet Connect string from your wallet. MolStr asks '
+        'the wallet to confirm it before saving anything. The secret is kept '
+        'in this device\'s secure storage. Spending limits are set in your '
+        'wallet, not in MolStr.',
+        textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        controller: _uriController,
+        enabled: !_busy,
+        autocorrect: false,
+        enableSuggestions: false,
+        enableIMEPersonalizedLearning: false,
+        maxLines: 1,
+        obscureText: true,
+        decoration: const InputDecoration(
+          labelText: 'nostr+walletconnect://…',
+          helperText: 'Spending credential. Keep this private.',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      const SizedBox(height: 12),
+      if (_error != null) ...[
+        Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+        const SizedBox(height: 12),
+      ],
+      if (_busy) ...[
+        _busyRow(),
+        const SizedBox(height: 12),
+      ],
+      FilledButton.icon(
+        onPressed: _busy ? null : _connect,
+        icon: const Icon(Icons.link),
+        label: const Text('Connect wallet'),
+      ),
+    ];
+  }
+
+  List<Widget> _connectedView(ThemeData theme, NwcConnection connection) {
+    final textTheme = theme.textTheme;
+
+    return [
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                  const SizedBox(width: 8),
+                  Text('Wallet connected', style: textTheme.titleMedium),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text('Wallet service', style: textTheme.labelSmall),
+              Text(
+                _shortHex(connection.walletPubkey),
+                style: textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text('Relay', style: textTheme.labelSmall),
+              for (final relay in connection.relays)
+                Text(relay, style: textTheme.bodySmall),
+              const SizedBox(height: 8),
+              Text('Encryption', style: textTheme.labelSmall),
+              Text(_encryption.label, style: textTheme.bodySmall),
+              const SizedBox(height: 8),
+              Text('Can pay invoices', style: textTheme.labelSmall),
+              Text(_canPayText(), style: textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ),
+      if (_balanceText != null)
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.bolt, size: 18),
+                const SizedBox(width: 8),
+                Text('Balance: $_balanceText', style: textTheme.titleSmall),
+              ],
+            ),
+          ),
+        ),
+      const SizedBox(height: 8),
+      if (_notice != null) ...[
+        Text(_notice!, style: textTheme.bodySmall),
+        const SizedBox(height: 8),
+      ],
+      if (_error != null) ...[
+        Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+        const SizedBox(height: 8),
+      ],
+      if (_busy) ...[
+        _busyRow(),
+        const SizedBox(height: 8),
+      ],
+      FilledButton.icon(
+        onPressed: _busy ? null : _refresh,
+        icon: const Icon(Icons.refresh),
+        label: const Text('Check wallet status'),
+      ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: _busy ? null : _disconnect,
+        icon: const Icon(Icons.link_off),
+        label: const Text('Disconnect'),
+      ),
+      const SizedBox(height: 12),
+      Text(
+        'MolStr contacts your wallet only when you press a button here or '
+        'confirm a zap. It never pays without your confirmation.',
+        style: textTheme.bodySmall,
+      ),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Wallet')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              if (_phase == WalletPhase.loading)
-                const Center(child: CircularProgressIndicator()),
-              if (_phase == WalletPhase.disconnected ||
-                  _phase == WalletPhase.error) ...[
-                if (_error != null) ...[
-                  Text(_error!),
-                  const SizedBox(height: 16),
-                ],
-                Text(
-                  'Connect a Nostr Wallet Connect (NWC) wallet',
-                  style: theme.textTheme.titleLarge,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _uriController,
-                  enabled: _phase != WalletPhase.connecting,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  enableIMEPersonalizedLearning: false,
-                  maxLines: 1,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'nostr+walletconnect://…',
-                    helperText: 'Spending credential — keep this private.',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: _phase == WalletPhase.connecting ? null : _connect,
-                  icon: const Icon(Icons.link),
-                  label: const Text('Connect wallet'),
-                ),
-              ],
-              if (_phase == WalletPhase.connecting) ...[
-                const Center(child: CircularProgressIndicator()),
-                const SizedBox(height: 16),
-                const Text(
-                  'Checking wallet service…',
-                  textAlign: TextAlign.center,
-                ),
-              ],
-              if (_phase == WalletPhase.connected && _connection != null) ...[
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Wallet connected',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Service public key',
-                          style: theme.textTheme.labelSmall,
-                        ),
-                        SelectableText(
-                          _shortHex(_connection!.walletPubkey),
-                          style: theme.textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: 8),
-                        Text('Relays', style: theme.textTheme.labelSmall),
-                        for (final relay in _connection!.relays)
-                          Text(relay, style: theme.textTheme.bodySmall),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Encryption: ${_encryption.label}',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Wallet info',
-                          style: theme.textTheme.labelSmall,
-                        ),
-                        SelectableText(
-                          _info ?? '—',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(color: theme.colorScheme.error),
-                    ),
-                  ),
-                if (_testInfo != null)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        _testInfo!,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ),
-                  ),
-                if (_balanceText != null)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        'Wallet balance: $_balanceText',
-                        style: theme.textTheme.titleSmall,
-                      ),
-                    ),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: _phase == WalletPhase.connecting
-                      ? null
-                      : () {
-                          _handshake(showErrors: true);
-                        },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Re-check wallet'),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed:
-                      _phase == WalletPhase.connecting ? null : _testConnection,
-                  icon: const Icon(Icons.security_outlined),
-                  label: const Text('Test encrypted connection (get_info)'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed:
-                      _checkingBalance || _phase == WalletPhase.connecting
-                          ? null
-                          : _checkBalance,
-                  icon: _checkingBalance
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.account_balance_outlined),
-                  label: Text(
-                    _checkingBalance ? 'Checking balance…' : 'Check balance',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: _disconnect,
-                  icon: const Icon(Icons.link_off),
-                  label: const Text('Disconnect'),
-                ),
-              ],
-            ],
-          ),
+    final connection = _connection;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            if (_restoring) const Center(child: CircularProgressIndicator()),
+            if (!_restoring && connection == null) ..._connectForm(theme),
+            if (!_restoring && connection != null)
+              ..._connectedView(theme, connection),
+          ],
         ),
       ),
     );
