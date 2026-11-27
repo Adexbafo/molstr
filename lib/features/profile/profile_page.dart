@@ -1,20 +1,22 @@
 import 'dart:async';
-import '../../core/nostr/note_engagement.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/nostr/identity_service.dart';
+import '../../core/nostr/interactions.dart';
+import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/note_engagement.dart';
+import '../../core/nostr/pinned_notes.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../ui/render/note_card.dart';
+import '../../ui/render/poll_card.dart';
+import '../../ui/widgets/account_switcher_sheet.dart';
 import '../../ui/widgets/molstr_avatar.dart';
 import '../../ui/widgets/nip05_badge.dart';
 import '../../ui/widgets/social_counts_line.dart';
 import 'profile_editor_page.dart';
-import '../../core/nostr/nostr_event.dart';
-import '../../ui/render/poll_card.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../../ui/widgets/account_switcher_sheet.dart';
-import '../../core/nostr/interactions.dart';
 import 'saved_notes_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -45,8 +47,12 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
+  /// The relay layer accepts at most 60 ids per count request.
+  static const _countBatchSize = 60;
+
   late final TabController _tabs;
   FeedResult? _result;
+  List<NostrEvent> _pinned = const [];
   Map<String, NoteEngagement> _engagement = const {};
   int _engagementGeneration = 0;
   bool _loading = false;
@@ -78,15 +84,27 @@ class _ProfilePageState extends State<ProfilePage>
         authors: [widget.identity.pubkey],
       );
 
+      // A failed pin lookup must not break the profile. Null keeps whatever
+      // pins were last seen.
+      List<NostrEvent>? pins;
+      try {
+        pins = await fetchPinnedNotes(
+          relayService: widget.relayService,
+          pubkey: widget.identity.pubkey,
+          relays: widget.relays,
+        );
+      } catch (_) {
+        pins = null;
+      }
+
       if (!mounted) return;
 
       setState(() {
         _result = result;
+        _pinned = pins ?? _pinned;
         _engagement = const {};
         _loading = false;
       });
-
-      unawaited(_loadEngagement(result));
 
       unawaited(_loadEngagement(result));
     } catch (_) {
@@ -102,23 +120,29 @@ class _ProfilePageState extends State<ProfilePage>
   Future<void> _loadEngagement(FeedResult result) async {
     final generation = ++_engagementGeneration;
 
+    // Pinned notes go first so they are always counted.
     final ids = <String>{
-      ...result.polls.map((poll) => poll.id),
-      ...result.notes.map((note) => note.id),
+      for (final event in _pinned) event.id,
+      for (final poll in result.polls) poll.id,
+      for (final note in result.notes) note.id,
     }.toList();
 
     if (ids.isEmpty || result.connectedRelays.isEmpty) return;
 
     try {
-      // Ask every selected relay, not only those that answered this load.
-      final counts = await widget.relayService.fetchNoteEngagement(
-        ids,
-        widget.relays,
-      );
+      for (var start = 0; start < ids.length; start += _countBatchSize) {
+        final next = start + _countBatchSize;
+        final end = next < ids.length ? next : ids.length;
 
-      if (!mounted || generation != _engagementGeneration) return;
+        // Ask every selected relay, not only those that answered this load.
+        final counts = await widget.relayService.fetchNoteEngagement(
+          ids.sublist(start, end),
+          widget.relays,
+        );
 
-      setState(() => _engagement = counts);
+        if (!mounted || generation != _engagementGeneration) return;
+        setState(() => _engagement = {..._engagement, ...counts});
+      }
     } catch (_) {
       if (!mounted || generation != _engagementGeneration) return;
 
@@ -138,26 +162,77 @@ class _ProfilePageState extends State<ProfilePage>
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
   }
 
-  List<Widget> _notesTab(List<dynamic> notes) {
-    if (notes.isEmpty) {
-      return const [
-        Center(
-            child: Padding(
+  /// A note or poll as a card. Pins can be either.
+  Widget _card(NostrEvent event, FeedResult result) {
+    if (event.kind == 1068) {
+      final poll = PollData.fromEvent(event);
+      if (poll != null) {
+        return PollCard(
+          key: ValueKey('poll:${event.id}'),
+          poll: poll,
+          profile: result.profiles[event.pubkey],
+          provenance: relayProvenance(result.noteRelays[event.id]),
+          loadImages: widget.loadImages,
+          engagement: _engagement[event.id],
+        );
+      }
+    }
+    return NoteCard(
+      key: ValueKey('note:${event.id}'),
+      event: event,
+      profile: result.profiles[event.pubkey],
+      provenance: relayProvenance(result.noteRelays[event.id]),
+      loadImages: widget.loadImages,
+      engagement: _engagement[event.id],
+    );
+  }
+
+  List<Widget> _emptyNotes() {
+    return const [
+      Center(
+        child: Padding(
           padding: EdgeInsets.all(32),
           child: Text(
-              'No notes from this identity were found on your relays yet.'),
-        )),
-      ];
-    }
+            'No notes from this identity were found on your relays yet.',
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _notesTab(List<NostrEvent> notes) {
+    if (notes.isEmpty) return _emptyNotes();
     final result = _result!;
-    return notes.map((note) {
-      return NoteCard(
-          event: note,
-          profile: result.profiles[note.pubkey],
-          provenance: relayProvenance(result.noteRelays[note.id]),
-          loadImages: widget.loadImages,
-          engagement: _engagement[note.id]);
-    }).toList();
+    return [for (final note in notes) _card(note, result)];
+  }
+
+  /// The Notes tab: a Pinned section first, then the rest.
+  List<Widget> _notesWithPins(List<NostrEvent> notes) {
+    if (_pinned.isEmpty) return _notesTab(notes);
+    if (notes.isEmpty && _pinned.isEmpty) return _emptyNotes();
+
+    final result = _result!;
+    final theme = Theme.of(context);
+
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.push_pin, size: 16),
+            const SizedBox(width: 6),
+            Text('Pinned', style: theme.textTheme.titleSmall),
+          ],
+        ),
+      ),
+      for (final event in _pinned) _card(event, result),
+      if (notes.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 8),
+          child: Text('Notes', style: theme.textTheme.titleSmall),
+        ),
+      for (final note in notes) _card(note, result),
+    ];
   }
 
   List<Widget> _pollCards() {
@@ -175,20 +250,17 @@ class _ProfilePageState extends State<ProfilePage>
         ),
       ];
     }
-    return parsed
-        .map(
-          (poll) => PollCard(
-            key: ValueKey(poll.event.id),
-            poll: poll,
-            profile: result.profiles[poll.event.pubkey],
-            provenance: relayProvenance(
-              result.noteRelays[poll.event.id],
-            ),
-            loadImages: widget.loadImages,
-            engagement: _engagement[poll.event.id],
-          ),
-        )
-        .toList();
+    return [
+      for (final poll in parsed)
+        PollCard(
+          key: ValueKey(poll.event.id),
+          poll: poll,
+          profile: result.profiles[poll.event.pubkey],
+          provenance: relayProvenance(result.noteRelays[poll.event.id]),
+          loadImages: widget.loadImages,
+          engagement: _engagement[poll.event.id],
+        ),
+    ];
   }
 
   @override
@@ -223,11 +295,21 @@ class _ProfilePageState extends State<ProfilePage>
       );
     }
 
-    final notes =
-        (_result?.notes ?? const []).where((n) => !n.isReply).toList();
-    final replies =
-        (_result?.notes ?? const []).where((n) => n.isReply).toList();
-    final pollCount = (_result?.polls ?? const []).length;
+    final allNotes = _result?.notes ?? const <NostrEvent>[];
+    final pinnedIds = {for (final event in _pinned) event.id};
+
+    // Pinned notes move to their own section instead of appearing twice.
+    final notes = [
+      for (final note in allNotes)
+        if (!note.isReply && !pinnedIds.contains(note.id)) note,
+    ];
+    final replies = [
+      for (final note in allNotes)
+        if (note.isReply) note,
+    ];
+    final pollCount = (_result?.polls ?? const <NostrEvent>[]).length;
+    final hasBanner =
+        banner != null && widget.loadImages && banner.startsWith('https://');
 
     return Center(
       child: ConstrainedBox(
@@ -235,18 +317,14 @@ class _ProfilePageState extends State<ProfilePage>
         child: Column(
           children: [
             SizedBox(
-              height: banner != null &&
-                      widget.loadImages &&
-                      banner.startsWith('https://')
-                  ? 110
-                  : 72,
+              height: hasBanner ? 110 : 72,
               width: double.infinity,
-              child: banner != null &&
-                      widget.loadImages &&
-                      banner.startsWith('https://')
-                  ? Image.network(banner,
+              child: hasBanner
+                  ? Image.network(
+                      banner,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _bannerGradient())
+                      errorBuilder: (_, __, ___) => _bannerGradient(),
+                    )
                   : _bannerGradient(),
             ),
             Padding(
@@ -265,14 +343,18 @@ class _ProfilePageState extends State<ProfilePage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name,
-                            style: textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        Text(
+                          name,
+                          style: textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
                         InkWell(
                           onTap: () =>
                               _copy(widget.identity.npub, 'npub copied.'),
-                          child: Text(shortNpub(widget.identity.npub),
-                              style: textTheme.bodySmall),
+                          child: Text(
+                            shortNpub(widget.identity.npub),
+                            style: textTheme.bodySmall,
+                          ),
                         ),
                         if (profile?.nip05 != null) ...[
                           const SizedBox(height: 4),
@@ -296,16 +378,18 @@ class _ProfilePageState extends State<ProfilePage>
                           InkWell(
                             onTap: () =>
                                 _copy(lud16, 'Lightning address copied.'),
-                            child: Row(children: [
-                              const Icon(Icons.bolt, size: 16),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  lud16,
-                                  overflow: TextOverflow.ellipsis,
+                            child: Row(
+                              children: [
+                                const Icon(Icons.bolt, size: 16),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    lud16,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                              ),
-                            ]),
+                              ],
+                            ),
                           ),
                         ],
                         if (moneroAddress != null) ...[
@@ -313,13 +397,18 @@ class _ProfilePageState extends State<ProfilePage>
                           InkWell(
                             onTap: () =>
                                 _copy(moneroAddress, 'Monero address copied.'),
-                            child: Row(children: [
-                              const Icon(Icons.lock_outline, size: 16),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                  child: Text(moneroAddress,
-                                      overflow: TextOverflow.ellipsis)),
-                            ]),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.lock_outline, size: 16),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    moneroAddress,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ],
@@ -332,7 +421,8 @@ class _ProfilePageState extends State<ProfilePage>
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2))
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Icon(Icons.refresh),
                   ),
                 ],
@@ -416,7 +506,7 @@ class _ProfilePageState extends State<ProfilePage>
             TabBar(
               controller: _tabs,
               tabs: [
-                Tab(text: 'Notes (${notes.length})'),
+                Tab(text: 'Notes (${notes.length + _pinned.length})'),
                 Tab(text: 'Polls ($pollCount)'),
                 Tab(text: 'Replies (${replies.length})'),
               ],
@@ -427,7 +517,7 @@ class _ProfilePageState extends State<ProfilePage>
                 children: [
                   ListView(
                     padding: const EdgeInsets.all(16),
-                    children: _notesTab(notes),
+                    children: _notesWithPins(notes),
                   ),
                   ListView(
                     padding: const EdgeInsets.all(16),
