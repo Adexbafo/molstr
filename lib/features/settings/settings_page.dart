@@ -5,6 +5,7 @@ import '../../core/nostr/relay_service.dart';
 import '../../core/nostr/user_relays.dart';
 import 'package:flutter/material.dart';
 import '../../ui/theme/app_theme.dart';
+import 'export_key_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -454,6 +455,23 @@ class _SettingsPageState extends State<SettingsPage> {
         const Divider(height: 48),
         Text('Diagnostics', style: textTheme.headlineSmall),
         const SizedBox(height: 8),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.vpn_key_outlined),
+            title: const Text('Export private key'),
+            subtitle: const Text('Show your nsec once, with screenshot guard'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ExportKeyPage(
+                    identityService: widget.identityService,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
         Card(
           child: ListTile(
             leading: const Icon(Icons.build_circle_outlined),
