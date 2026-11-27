@@ -366,6 +366,7 @@ class _ProfilePageState extends State<ProfilePage>
                             relayService: widget.relayService,
                             relays: widget.relays,
                             current: profile,
+                            loadImages: widget.loadImages,
                           ),
                         ),
                       );
