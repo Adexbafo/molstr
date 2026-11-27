@@ -400,7 +400,9 @@ class _MolStrShellState extends State<MolStrShell> {
         ),
         WalletPage(
           key: ValueKey(_identity?.pubkey ?? 'signed-out'),
+          identityService: _identityService,
           relayService: widget.relayService,
+          relays: widget.relays,
         ),
         _profilePage(),
         SettingsPage(
