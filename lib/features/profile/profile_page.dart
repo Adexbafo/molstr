@@ -176,6 +176,7 @@ class _ProfilePageState extends State<ProfilePage>
     return parsed
         .map(
           (poll) => PollCard(
+            key: ValueKey(poll.event.id),
             poll: poll,
             profile: result.profiles[poll.event.pubkey],
             provenance: relayProvenance(

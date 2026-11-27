@@ -1,14 +1,17 @@
 import 'dart:async';
-import '../../core/nostr/note_engagement.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../core/nostr/nostr_event.dart';
+import '../../core/nostr/feed_curation.dart';
+import '../../core/nostr/note_engagement.dart';
 import '../../core/nostr/relay_service.dart';
 import '../../ui/render/article_card.dart';
 import '../../ui/render/note_card.dart';
 import '../../ui/render/poll_card.dart';
-import '../../core/nostr/feed_curation.dart';
 
+/// The Home feed: recent notes, polls, and articles from the selected relays,
+/// with opt-in filters. Nothing loads until the user asks for it.
 class HomeFeedPage extends StatefulWidget {
   const HomeFeedPage({
     super.key,
@@ -32,17 +35,23 @@ class HomeFeedPage extends StatefulWidget {
 }
 
 class _HomeFeedPageState extends State<HomeFeedPage> {
+  /// The relay layer accepts at most 60 ids per count request.
+  static const _countBatchSize = 60;
+
   FeedResult? _result;
-  Map<String, NoteEngagement> _engagement = const {};
-  int _engagementGeneration = 0;
   bool _loading = false;
-  bool _hideReplies = true;
-  bool _namedOnly = false;
-  Set<String>? _trustedAuthors;
-  bool _loadingTrust = false;
-  bool _hideRepeats = false;
   String _status = '';
   int _lastRefreshToken = 0;
+
+  Map<String, NoteEngagement> _engagement = const {};
+  int _engagementGeneration = 0;
+
+  bool _hideReplies = true;
+  bool _namedOnly = false;
+  bool _hideRepeats = false;
+
+  Set<String>? _trustedAuthors;
+  bool _loadingTrust = false;
 
   @override
   void initState() {
@@ -57,62 +66,74 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
         _result != null &&
         !_loading) {
       _lastRefreshToken = widget.refreshToken;
-      _loadFeed();
+      // Start the reload after this build finishes, not during it.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadFeed();
+      });
     }
   }
 
+  void _message(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   Future<void> _loadFeed() async {
-    if (widget.relays.isEmpty) return;
+    if (widget.relays.isEmpty || _loading) return;
 
     setState(() {
       _loading = true;
-      _status = 'Connecting to ${widget.relays.length} relay(s)...';
+      _status = 'Connecting to ${widget.relays.length} relay(s)…';
     });
 
-    final result = await widget.relayService.fetchFeed(
-      widget.relays,
-      onStatus: (status) {
-        if (mounted) setState(() => _status = status);
-      },
-    );
-    if (!mounted) return;
-
-    setState(() {
-      _result = result;
-      _engagement = const {};
-      _loading = false;
-    });
-    unawaited(_loadEngagement(result));
+    try {
+      final result = await widget.relayService.fetchFeed(
+        widget.relays,
+        onStatus: (status) {
+          if (mounted) setState(() => _status = status);
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _result = result;
+        _loading = false;
+      });
+      unawaited(_loadEngagement(result));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _message('Could not load the feed. Check your relays and try again.');
+    }
   }
 
+  /// Requests reply, like, repost, quote, and zap counts for every note and
+  /// poll in [result]. Requests go in batches, so no item is left without one.
   Future<void> _loadEngagement(FeedResult result) async {
     final generation = ++_engagementGeneration;
     final ids = [
-      ...result.notes.map((note) => note.id),
-      ...result.polls.map((poll) => poll.id),
+      for (final note in result.notes) note.id,
+      for (final poll in result.polls) poll.id,
     ];
     if (ids.isEmpty || result.connectedRelays.isEmpty) return;
 
-    // Ask every selected relay, not only the ones that answered this feed
-    // load. A zap receipt can sit on a relay that was slow just now.
-    final counts = await widget.relayService.fetchNoteEngagement(
-      ids,
-      widget.relays,
-    );
-    if (!mounted || generation != _engagementGeneration) return;
-    setState(() => _engagement = counts);
-  }
+    for (var start = 0; start < ids.length; start += _countBatchSize) {
+      final next = start + _countBatchSize;
+      final end = next < ids.length ? next : ids.length;
 
-  bool _passesNameFilter(FeedResult result, String pubkey) =>
-      (!_namedOnly || result.profiles.containsKey(pubkey)) &&
-      (_trustedAuthors?.contains(pubkey) ?? true);
+      final counts = await widget.relayService.fetchNoteEngagement(
+        ids.sublist(start, end),
+        widget.relays,
+      );
+      if (!mounted || generation != _engagementGeneration) return;
+      setState(() => _engagement = {..._engagement, ...counts});
+    }
+  }
 
   Future<void> _enableTrustFilter() async {
     final viewer = widget.viewerPubkey;
     if (viewer == null || _loadingTrust) return;
 
     setState(() => _loadingTrust = true);
-
     try {
       final trusted = await loadTrustSet(
         relayService: widget.relayService,
@@ -120,32 +141,24 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
         relays: widget.relays,
       );
       if (!mounted) return;
-
       if (trusted == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No verified follow list was found on your selected relays. '
-              'The Web of Trust filter stayed off.',
-            ),
-          ),
+        _message(
+          'No verified follow list was found on your selected relays. '
+          'The Web of Trust filter stayed off.',
         );
         return;
       }
-
       setState(() => _trustedAuthors = trusted);
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Could not load your Web of Trust. The filter stayed off.'),
-        ),
-      );
+      _message('Could not load your Web of Trust. The filter stayed off.');
     } finally {
       if (mounted) setState(() => _loadingTrust = false);
     }
   }
+
+  bool _passesNameFilter(FeedResult result, String pubkey) =>
+      (!_namedOnly || result.profiles.containsKey(pubkey)) &&
+      (_trustedAuthors?.contains(pubkey) ?? true);
 
   Widget _connectPrompt(TextTheme textTheme) {
     return Center(
@@ -162,9 +175,9 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'MolStr does not connect automatically on startup. '
-              'Loading the feed contacts only the relays listed below '
-              'and cryptographically verifies every note.',
+              'MolStr does not connect automatically on startup. Loading the '
+              'feed contacts only the relays listed below and verifies the '
+              'signature on every note.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
@@ -173,8 +186,8 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
                 padding: const EdgeInsets.all(16),
                 child: widget.relays.isEmpty
                     ? const Text(
-                        'No relays configured. Add at least one wss:// '
-                        'relay in Settings.',
+                        'No relays configured. Add at least one wss:// relay '
+                        'in Settings.',
                       )
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,8 +236,8 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
               const Icon(Icons.cloud_off_outlined, size: 56),
               const SizedBox(height: 12),
               const Text(
-                'Could not connect to any configured relay. '
-                'Check your internet connection or relay URLs.',
+                'Could not connect to any configured relay. Check your internet '
+                'connection or relay URLs.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -254,7 +267,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
       return _connectPrompt(textTheme);
     }
 
-    if (_loading && _result == null) {
+    if (_result == null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -272,72 +285,82 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
       return _connectionFailed();
     }
 
-    final matchingNotes = result.notes.where((note) {
-      if (_hideReplies && note.isReply) return false;
-      return _passesNameFilter(result, note.pubkey);
-    }).toList();
-
+    // Filters run before anything is built, so the status line can report
+    // how many copies were hidden.
+    final matchingNotes = [
+      for (final note in result.notes)
+        if (!(_hideReplies && note.isReply) &&
+            _passesNameFilter(result, note.pubkey))
+          note,
+    ];
     final visibleNotes =
         _hideRepeats ? collapseRepeatedNotes(matchingNotes) : matchingNotes;
+    final repeatsHidden = matchingNotes.length - visibleNotes.length;
 
-    final parsedPolls = result.polls
-        .map(PollData.fromEvent)
-        .whereType<PollData>()
-        .where((poll) => _passesNameFilter(result, poll.event.pubkey))
-        .toList();
-
-    final parsedArticles = result.articles
-        .map(ArticleData.fromEvent)
-        .whereType<ArticleData>()
-        .where((a) => _passesNameFilter(result, a.event.pubkey))
-        .toList();
-
-    // (timestamp, card) pairs, newest first.
     final feedItems = <(int, Widget)>[
       for (final note in visibleNotes)
         (
           note.createdAt,
-          NoteCard(
-            event: note,
-            profile: result.profiles[note.pubkey],
-            provenance: relayProvenance(result.noteRelays[note.id]),
-            loadImages: widget.loadImages,
-            engagement: _engagement[note.id],
+          KeyedSubtree(
+            key: ValueKey('note:${note.id}'),
+            child: NoteCard(
+              event: note,
+              profile: result.profiles[note.pubkey],
+              provenance: relayProvenance(result.noteRelays[note.id]),
+              loadImages: widget.loadImages,
+              engagement: _engagement[note.id],
+            ),
           ),
         ),
-      for (final note in visibleNotes)
-        (
-          note.createdAt,
-          NoteCard(
-            event: note,
-            profile: result.profiles[note.pubkey],
-            provenance: relayProvenance(result.noteRelays[note.id]),
-            loadImages: widget.loadImages,
-            engagement: _engagement[note.id],
-          ),
-        ),
-      for (final poll in parsedPolls)
-        (
-          poll.event.createdAt,
-          PollCard(
+    ];
+
+    for (final event in result.polls) {
+      final poll = PollData.fromEvent(event);
+      if (poll == null || !_passesNameFilter(result, event.pubkey)) {
+        continue;
+      }
+      feedItems.add((
+        event.createdAt,
+        KeyedSubtree(
+          key: ValueKey('poll:${event.id}'),
+          child: PollCard(
             poll: poll,
-            profile: result.profiles[poll.event.pubkey],
-            provenance: relayProvenance(result.noteRelays[poll.event.id]),
+            profile: result.profiles[event.pubkey],
+            provenance: relayProvenance(result.noteRelays[event.id]),
             loadImages: widget.loadImages,
-            engagement: _engagement[poll.event.id],
+            engagement: _engagement[event.id],
           ),
         ),
-      for (final article in parsedArticles)
-        (
-          article.event.createdAt,
-          ArticleCard(
+      ));
+    }
+
+    for (final event in result.articles) {
+      final article = ArticleData.fromEvent(event);
+      if (article == null || !_passesNameFilter(result, event.pubkey)) {
+        continue;
+      }
+      feedItems.add((
+        event.createdAt,
+        KeyedSubtree(
+          key: ValueKey('article:${event.id}'),
+          child: ArticleCard(
             article: article,
-            profile: result.profiles[article.event.pubkey],
-            provenance: relayProvenance(result.noteRelays[article.event.id]),
+            profile: result.profiles[event.pubkey],
+            provenance: relayProvenance(result.noteRelays[event.id]),
             loadImages: widget.loadImages,
           ),
         ),
-    ]..sort((a, b) => b.$1.compareTo(a.$1));
+      ));
+    }
+
+    feedItems.sort((a, b) => b.$1.compareTo(a.$1));
+
+    final copyWord = repeatsHidden == 1 ? 'copy' : 'copies';
+    final repeatNote =
+        repeatsHidden == 0 ? '' : ' · $repeatsHidden repeated $copyWord hidden';
+    final statusText =
+        '${result.connectedRelays.length}/${widget.relays.length} relays '
+        'connected · ${feedItems.length} items$repeatNote';
 
     return Column(
       children: [
@@ -348,11 +371,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text(
-                '${result.connectedRelays.length}/${widget.relays.length} '
-                'relays connected · ${feedItems.length} items',
-                style: textTheme.bodySmall,
-              ),
+              Text(statusText, style: textTheme.bodySmall),
               FilterChip(
                 label: const Text('Hide replies'),
                 selected: _hideReplies,
@@ -367,27 +386,38 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
                   setState(() => _namedOnly = selected);
                 },
               ),
-              FilterChip(
-                label: Text(
-                  _loadingTrust ? 'Loading trust list…' : 'Web of Trust only',
+              Tooltip(
+                message:
+                    'Shows your posts, posts from people you follow, and posts '
+                    'from people they follow. Uses your selected relays.',
+                child: FilterChip(
+                  label: Text(
+                    _loadingTrust ? 'Loading trust list…' : 'Web of Trust only',
+                  ),
+                  selected: _trustedAuthors != null,
+                  onSelected: widget.viewerPubkey == null || _loadingTrust
+                      ? null
+                      : (selected) {
+                          if (selected) {
+                            _enableTrustFilter();
+                          } else {
+                            setState(() => _trustedAuthors = null);
+                          }
+                        },
                 ),
-                selected: _trustedAuthors != null,
-                onSelected: widget.viewerPubkey == null || _loadingTrust
-                    ? null
-                    : (selected) {
-                        if (selected) {
-                          _enableTrustFilter();
-                        } else {
-                          setState(() => _trustedAuthors = null);
-                        }
-                      },
               ),
-              FilterChip(
-                label: const Text('Hide repeated notes'),
-                selected: _hideRepeats,
-                onSelected: (selected) {
-                  setState(() => _hideRepeats = selected);
-                },
+              Tooltip(
+                message:
+                    'Keeps only the newest copy when the same author posts '
+                    'identical text. Off by default, because someone posting '
+                    '"gm" every day is not spam.',
+                child: FilterChip(
+                  label: const Text('Hide repeated notes'),
+                  selected: _hideRepeats,
+                  onSelected: (selected) {
+                    setState(() => _hideRepeats = selected);
+                  },
+                ),
               ),
               TextButton.icon(
                 onPressed: _loading ? null : _loadFeed,
@@ -398,7 +428,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.refresh, size: 18),
-                label: Text(_loading ? 'Refreshing...' : 'Refresh'),
+                label: Text(_loading ? 'Refreshing…' : 'Refresh'),
               ),
               TextButton.icon(
                 onPressed: widget.onOpenRelaySettings,
@@ -417,7 +447,7 @@ class _HomeFeedPageState extends State<HomeFeedPage> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    for (final (_, card) in feedItems) card,
+                    for (final item in feedItems) item.$2,
                   ],
                 ),
         ),

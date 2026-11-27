@@ -376,7 +376,7 @@ class _MolStrShellState extends State<MolStrShell> {
         HomeFeedPage(
           relays: widget.relays,
           relayService: widget.relayService,
-          onOpenRelaySettings: () => setState(() => _index = 5),
+          onOpenRelaySettings: () => setState(() => _index = 6),
           loadImages: widget.loadImages,
           refreshToken: _feedRefreshToken,
           key: ValueKey(('home', _identity?.pubkey, widget.relays.join('\n'))),
