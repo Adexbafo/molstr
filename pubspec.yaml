@@ -29,6 +29,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 
 
 
@@ -50,3 +51,19 @@ flutter:
         - asset: assets/fonts/jetbrains_mono/JetBrainsMono-Regular.ttf
         - asset: assets/fonts/jetbrains_mono/JetBrainsMono-Bold.ttf
           weight: 700
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "branding/launcher_rounded.png"
+  image_path_ios: "branding/launcher_square.png"
+  remove_alpha_ios: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#7C3AED"
+  adaptive_icon_foreground: "branding/launcher_foreground.png"
+  windows:
+    generate: true
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "branding/launcher_macos.png"
